@@ -17,7 +17,7 @@ runuser -u {{ nemoclaw_user }} -- env \
   NEMOCLAW_POLICY_MODE={{ nemoclaw_policy_mode }} \
   NEMOCLAW_SANDBOX_NAME={{ nemoclaw_sandbox_name }} \
   {{ nemoclaw_provider_key_env }}="$provider_key" \
-  bash -c 'curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/{{ nemoclaw_install_tag }}/install.sh | bash'
+  bash -c 'curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/{{ nemoclaw_install_commit }}/install.sh | bash'
 
 touch "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
 chown {{ nemoclaw_user }}:{{ nemoclaw_user }} "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"

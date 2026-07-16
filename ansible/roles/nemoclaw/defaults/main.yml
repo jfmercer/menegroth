@@ -2,6 +2,11 @@
 # NemoClaw is alpha software — the installer ref is pinned and bumped
 # deliberately via PR, never floated on the "lkg" default.
 nemoclaw_install_tag: v0.0.83
+# The commit that tag points to. The installer is fetched by commit, not tag:
+# tags can be re-pointed after a repo compromise; commit SHAs cannot. Bump
+# BOTH together — resolve with:
+#   git ls-remote https://github.com/NVIDIA/NemoClaw 'v0.0.83^{}'
+nemoclaw_install_commit: 45b1cb5a01f3408743c8479772af4ad9d4a91fc8
 
 nemoclaw_user: nemoclaw
 nemoclaw_uid: 1500

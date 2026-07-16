@@ -53,9 +53,9 @@ Key properties:
   every service are reachable only over the tailnet (Tailscale requires no
   inbound ports). Break-glass access is the Hetzner web console — see
   [docs/runbooks/break-glass.md](docs/runbooks/break-glass.md).
-- **Secrets never live in this repo or in GitHub, except two bootstrap
+- **Secrets never live in this repo or in GitHub, except three bootstrap
   credentials.** GitHub repo secrets hold only the Infisical machine-identity
-  credentials and the HCP Terraform token; workflows pull everything else
+  credentials (client ID + secret) and the HCP Terraform token; workflows pull everything else
   (Hetzner token, Tailscale OAuth client, ntfy topic, LLM API keys) from
   Infisical at run time.
 - **Key custody is split.** The data-volume key comes from Infisical (the
@@ -144,3 +144,4 @@ leaves the system deployable:
 9. Server migrated to the FDE image
 10. Mac unlock agent — automated remote unlock over Tailscale
 11. Ops alignment: evening reboot window, stuck-at-boot alerting
+12. Mac-side secrets moved from Apple Keychain to 1Password

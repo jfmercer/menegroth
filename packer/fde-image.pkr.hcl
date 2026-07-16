@@ -30,6 +30,15 @@ variable "mac_unlock_ssh_pubkey" {
   # Public half of the Mac unlock agent's SSH key (macos/README.md).
   # REPLACE during bootstrap:
   default = "ssh-ed25519 AAAA_REPLACE_ME mac-unlock-agent"
+
+  # A build with the placeholder would bake an image whose remote unlock can
+  # never work (console-only) — and that only surfaces at the first reboot.
+  # Fail the build here instead. CI's validate job passes a benign
+  # placeholder; the build job uses this file's (replaced) default.
+  validation {
+    condition     = !can(regex("REPLACE_ME", var.mac_unlock_ssh_pubkey))
+    error_message = "The mac_unlock_ssh_pubkey variable still has the REPLACE_ME placeholder — run macos/install.sh and paste the printed public key here (README bootstrap step 6)."
+  }
 }
 
 variable "ubuntu_series" {
@@ -50,10 +59,10 @@ variable "boot_hostname" {
 source "hcloud" "fde" {
   server_name = "packer-fde-build"
   # Same type as production so the snapshot's disk geometry matches exactly.
-  server_type = "cx33"
+  server_type   = "cx33"
   location      = "nbg1"
   image         = "ubuntu-24.04" # only hosts the rescue boot; overwritten below
-  rescue        = "linux64"     # build happens from the rescue system
+  rescue        = "linux64"      # build happens from the rescue system
   ssh_username  = "root"
   snapshot_name = "fde-ubuntu-24.04-{{timestamp}}"
   snapshot_labels = {

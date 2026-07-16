@@ -1,6 +1,8 @@
 ---
 harden_ssh_allow_users: ["{{ admin_user }}"]
-harden_reboot_time: "{{ unattended_reboot_time | default('04:30') }}"
+# Fallback must stay in Mac-awake hours: the FDE root can only be unlocked
+# while the Mac agent is reachable (docs/architecture.md D2b).
+harden_reboot_time: "{{ unattended_reboot_time | default('19:00') }}"
 harden_base_packages:
   - unattended-upgrades
   - apt-listchanges

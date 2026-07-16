@@ -35,6 +35,13 @@ variable "admin_ssh_public_key" {
   type        = string
   # REPLACE during bootstrap (step 5 in README):
   default = "ssh-ed25519 AAAA_REPLACE_ME ai-server-admin"
+
+  # Fail the plan fast instead of letting Hetzner reject the key (or worse,
+  # accept a wrong one) at apply time.
+  validation {
+    condition     = !strcontains(var.admin_ssh_public_key, "REPLACE_ME")
+    error_message = "The admin_ssh_public_key variable still has the REPLACE_ME placeholder — generate the bootstrap keypair and paste the public key here (README bootstrap step 5)."
+  }
 }
 
 variable "data_volume_size" {

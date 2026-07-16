@@ -26,10 +26,15 @@ jobs:
       - run: packer init .
       - run: packer fmt -check .
       - name: packer validate
+        env:
+          # The hcloud plugin's validate step only checks that a token is
+          # present — no API call is made, so a dummy value is fine here.
+          HCLOUD_TOKEN: dummy-for-validate
         run: >
           packer validate
           -var root_luks_passphrase=placeholder
           -var boot_tailscale_authkey=placeholder
+          -var 'mac_unlock_ssh_pubkey=ssh-ed25519 AAAAplaceholder ci-validate'
           .
 
   build:

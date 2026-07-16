@@ -190,8 +190,10 @@ deliberate, reviewed bumps, not floating `lkg`.
 - **Monitoring:** a 15-minute systemd timer checks `/data` mount state, disk
   usage, failed units, Tailscale health, and OOM kills in the agent slice,
   and pushes to an ntfy topic only when something is wrong.
-- **Updates:** unattended-upgrades with automatic reboots at 04:30 UTC; the
-  data volume re-unlocks itself after reboot (see D2).
+- **Updates:** unattended-upgrades with automatic reboots at 19:00 UTC
+  (`unattended_reboot_time` in `ansible/group_vars/all.yml`, chosen for
+  Mac-awake hours so the root can be unlocked — see D2b); the data volume
+  re-unlocks itself after reboot (see D2).
 - **Verification:** `docs/verification.md` is the post-deploy checklist.
 
 ## Out of scope (for now)
