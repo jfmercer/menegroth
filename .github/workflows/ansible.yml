@@ -36,8 +36,45 @@ jobs:
       - name: Syntax check
         run: ansible-playbook site.yml --syntax-check
 
-  # Real provisioning runs are added in Phase 3: the runner joins the
-  # tailnet (tailscale/github-action) and reaches the dark host over
-  # Tailscale SSH. Until then, provisioning is run manually from the
-  # bootstrap admin IP:
-  #   cd ansible && ansible-playbook site.yml
+  provision:
+    if: github.event_name == 'push'
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: secure-ai-server
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      # The server has zero public inbound ports; the runner joins the
+      # tailnet as an ephemeral node tagged tag:ci and connects over
+      # Tailscale SSH (authorized by the tailnet ACL "ssh" section).
+      - name: Join tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          version: latest
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Ansible
+        run: pip install ansible-core
+      - name: Install collections
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Run playbook
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False" # host keys are vouched by Tailscale SSH
+        run: ansible-playbook site.yml
