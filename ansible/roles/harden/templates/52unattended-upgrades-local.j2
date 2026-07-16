@@ -8,8 +8,8 @@ Unattended-Upgrade::Allowed-Origins {
 };
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
-// Unattended reboots are deliberate: the root disk is unencrypted and the
-// LUKS data volume unlocks itself from Infisical at boot (see luks_volume
-// role), so kernel security updates apply without a human present.
+// Reboots require the Mac unlock agent (FDE root): the window is set to
+// Mac-awake hours. If the Mac is offline the server waits at the unlock
+// prompt and the agent alerts + unlocks when it comes back.
 Unattended-Upgrade::Automatic-Reboot "true";
 Unattended-Upgrade::Automatic-Reboot-Time "{{ harden_reboot_time }}";

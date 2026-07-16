@@ -22,6 +22,23 @@ after any significant change). They mirror the build phases.
 - [ ] From a tailnet device: `ssh admin@ai-server` works (Tailscale SSH).
 - [ ] The Ansible provision job (runner joins tailnet) succeeds on merge.
 
+## FDE root & automated unlock
+
+- [ ] Fresh image (throwaway server): boot node appears on the tailnet within
+      ~1 min; manual `ssh root@<boot-node>` unlock works; Hetzner console
+      passphrase entry works (`packer/README.md` steps 1–5).
+- [ ] Kernel-update survival: reinstall the kernel package, reboot, boot node
+      still joins (initramfs hook re-embedded tailscale).
+- [ ] Hands-off `sudo reboot` → Mac agent unlocks within ~2–3 min, ntfy
+      "unlocked" notification arrives, all services recover.
+- [ ] Mac asleep during reboot → server waits; on wake the agent unlocks;
+      after 10+ min stuck, the urgent "STUCK at boot" ntfy fires.
+- [ ] The boot node disappears from the tailnet after pivot (ephemeral +
+      logout), and `tailscale status` on the running server shows only the
+      real node.
+- [ ] Server identity CANNOT read `/unlock`: `sudo infisical-get ROOT_LUKS_KEY`
+      on the server must FAIL.
+
 ## Secrets & encrypted volume
 
 - [ ] On the server: `sudo infisical-get --check` exits 0.

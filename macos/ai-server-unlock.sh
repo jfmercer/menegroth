@@ -19,6 +19,7 @@ KEYCHAIN_SERVICE="ai-server-luks"
 SSH_KEY="${HOME}/.ssh/ai-server-unlock"
 NTFY_KEYCHAIN_SERVICE="ai-server-ntfy" # keychain item holding the ntfy topic URL
 COOLDOWN_SECONDS=120                   # don't re-attempt within this window
+STUCK_ALERT_SECONDS=600                # alert if the prompt sits unlocked this long
 # shellcheck disable=SC1090
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
@@ -56,13 +57,24 @@ for peer in (st.get('Peer') or {}).values():
 ")"
 
 if [[ -z "$boot_ip" ]]; then
-  # No server waiting at the unlock prompt — normal case; clear first-seen.
-  rm -f "$STATE_DIR/first_seen"
+  # No server waiting at the unlock prompt — normal case; clear incident state.
+  rm -f "$STATE_DIR/first_seen" "$STATE_DIR/stuck_alerted"
   exit 0
 fi
 
 # Track when we first saw this boot prompt (used for stuck-at-boot alerting).
 [[ -f "$STATE_DIR/first_seen" ]] || date +%s > "$STATE_DIR/first_seen"
+
+# Stuck-at-boot: the server has been waiting at the unlock prompt for a
+# while despite our attempts — escalate once per incident. (The server's own
+# healthcheck can't run while its root is locked, so this alert is the only
+# signal that a reboot is stuck.)
+first_seen="$(cat "$STATE_DIR/first_seen")"
+if (( $(date +%s) - first_seen > STUCK_ALERT_SECONDS )) && [[ ! -f "$STATE_DIR/stuck_alerted" ]]; then
+  touch "$STATE_DIR/stuck_alerted"
+  notify urgent "AI server STUCK at boot" \
+    "Boot node online for over $((STUCK_ALERT_SECONDS / 60)) min without a successful unlock. Console fallback: break-glass runbook §0."
+fi
 
 # Cooldown: an unlock attempt may take a moment to take effect (node
 # disappears after pivot); don't hammer the prompt meanwhile.
@@ -87,7 +99,7 @@ if printf '%s\n' "$passphrase" | ssh \
     -o StrictHostKeyChecking=accept-new \
     -o UserKnownHostsFile="$STATE_DIR/known_hosts" \
     "root@${boot_ip}" 2>>"$STATE_DIR/unlock.log"; then
-  rm -f "$STATE_DIR/first_seen"
+  rm -f "$STATE_DIR/first_seen" "$STATE_DIR/stuck_alerted"
   notify default "AI server unlocked" "Root volume unlocked automatically at $(date '+%H:%M:%S'); server is booting."
 else
   notify high "AI server unlock FAILED" "SSH unlock attempt to ${boot_ip} failed — see unlock.log. Console fallback: docs/runbooks/break-glass.md."

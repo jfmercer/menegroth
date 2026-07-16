@@ -1,4 +1,37 @@
-# Rotating the data-volume LUKS key
+# Rotating LUKS keys
+
+## Root volume passphrase
+
+The root passphrase lives in the Mac Keychain (primary) and Infisical
+`/unlock/ROOT_LUKS_KEY` (recovery). On the server (as root):
+
+```bash
+# 1. Generate and stage the new passphrase:
+new_key=$(openssl rand -base64 48)
+#    → update Infisical /unlock/ROOT_LUKS_KEY_NEW with it
+
+# 2. Add it to a free keyslot (current passphrase still valid):
+#    cryptsetup will prompt for an existing passphrase, then the new one:
+cryptsetup luksAddKey /dev/sda3
+
+# 3. Verify, then update BOTH stores:
+#    - Infisical: overwrite /unlock/ROOT_LUKS_KEY, delete the _NEW entry
+#    - Mac: security add-generic-password -s ai-server-luks -a "$USER" -w '<new>' -U
+
+# 4. Remove the old keyslot:
+cryptsetup luksRemoveKey /dev/sda3   # supply the OLD passphrase
+
+# 5. Prove end-to-end: reboot; the Mac agent must unlock with the new key.
+systemctl reboot
+```
+
+Rotate the **boot node auth key** (initramfs tailnet identity) by generating
+a new ephemeral pre-authorized key, updating `/unlock/TS_BOOT_AUTHKEY`,
+rebuilding the image (Packer workflow), rolling the server
+(`terraform apply -replace=hcloud_server.ai`), and revoking the old key in
+the Tailscale admin console.
+
+## Data-volume LUKS key
 
 The volume passphrase lives in Infisical at `/server/DATA_VOLUME_LUKS_KEY`.
 Rotation changes the LUKS keyslot **and** the Infisical secret, in an order
