@@ -1,5 +1,9 @@
 ---
 admin_user: admin
 
+# Infisical project holding this server's secrets (ID is not sensitive).
+# REPLACE during bootstrap: Infisical console → project settings → Project ID.
+infisical_project_id: REPLACE_WITH_PROJECT_ID
+
 # Window for unattended-upgrades automatic reboots (server local time, UTC).
 unattended_reboot_time: "04:30"

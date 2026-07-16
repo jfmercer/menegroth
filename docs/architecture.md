@@ -73,6 +73,8 @@ Secret layout in the `secure-ai-server` project, `prod` environment:
 /ci/TS_OAUTH_SECRET
 /ci/SSH_PRIVATE_KEY        Ansible bootstrap key (phases 1–2 only; Tailscale SSH after)
 /ci/TS_SERVER_AUTHKEY      Pre-authorized reusable auth key (tag:server) for the server's first tailnet join
+/ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
+/ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
 /server/DATA_VOLUME_LUKS_KEY
 /server/ANTHROPIC_API_KEY  (and other LLM provider keys)
 /server/NTFY_TOPIC_URL     Alerting destination

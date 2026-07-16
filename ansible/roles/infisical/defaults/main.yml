@@ -1,0 +1,11 @@
+---
+# Infisical Cloud EU. The project ID is not a secret; set it in
+# group_vars/all.yml during bootstrap.
+infisical_api_url: https://eu.infisical.com
+infisical_env_slug: prod
+infisical_server_secret_path: /server
+
+# Credentials of the "server" machine identity (universal auth). Delivered
+# by CI from the /ci secret path as env vars — never written to the repo.
+infisical_server_client_id: "{{ lookup('ansible.builtin.env', 'SERVER_IDENTITY_CLIENT_ID', default='') }}"
+infisical_server_client_secret: "{{ lookup('ansible.builtin.env', 'SERVER_IDENTITY_CLIENT_SECRET', default='') }}"
