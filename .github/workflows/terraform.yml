@@ -30,13 +30,13 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Only two credentials live in GitHub secrets: the HCP Terraform token
       # and the Infisical "ci" machine identity. Everything else (Hetzner
       # token, ...) is pulled from Infisical here.
       - name: Fetch secrets from Infisical
-        uses: Infisical/secrets-action@v1.0.9
+        uses: Infisical/secrets-action@v1.0.16
         with:
           method: universal
           client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
@@ -47,7 +47,7 @@ jobs:
           secret-path: /ci
           export-type: env
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
@@ -60,7 +60,7 @@ jobs:
       - name: terraform validate
         run: terraform validate -no-color
 
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
       - name: tflint
         run: tflint --format compact
 
@@ -72,7 +72,7 @@ jobs:
 
       - name: Comment plan on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
         with:
