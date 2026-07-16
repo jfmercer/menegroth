@@ -1,0 +1,43 @@
+---
+name: Ansible
+
+on:
+  pull_request:
+    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+  push:
+    branches: [master]
+    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ansible
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: ansible
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Ansible tooling
+        run: pip install ansible-core ansible-lint
+      - name: Install collections
+        run: ansible-galaxy collection install -r requirements.yml
+      - name: ansible-lint
+        run: ansible-lint
+      - name: Syntax check
+        run: ansible-playbook site.yml --syntax-check
+
+  # Real provisioning runs are added in Phase 3: the runner joins the
+  # tailnet (tailscale/github-action) and reaches the dark host over
+  # Tailscale SSH. Until then, provisioning is run manually from the
+  # bootstrap admin IP:
+  #   cd ansible && ansible-playbook site.yml

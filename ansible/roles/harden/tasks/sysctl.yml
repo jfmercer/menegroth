@@ -1,0 +1,30 @@
+---
+# Note: unprivileged user namespaces stay ENABLED — the OpenShell/NemoClaw
+# container runtime relies on them for sandboxing.
+- name: Apply kernel hardening sysctls
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-hardening.conf
+    reload: true
+  loop:
+    # Network
+    - { name: net.ipv4.tcp_syncookies, value: "1" }
+    - { name: net.ipv4.conf.all.rp_filter, value: "1" }
+    - { name: net.ipv4.conf.default.rp_filter, value: "1" }
+    - { name: net.ipv4.conf.all.accept_redirects, value: "0" }
+    - { name: net.ipv6.conf.all.accept_redirects, value: "0" }
+    - { name: net.ipv4.conf.all.send_redirects, value: "0" }
+    - { name: net.ipv4.conf.all.accept_source_route, value: "0" }
+    - { name: net.ipv6.conf.all.accept_source_route, value: "0" }
+    - { name: net.ipv4.icmp_echo_ignore_broadcasts, value: "1" }
+    # Kernel info leaks / attack surface
+    - { name: kernel.kptr_restrict, value: "2" }
+    - { name: kernel.dmesg_restrict, value: "1" }
+    - { name: kernel.unprivileged_bpf_disabled, value: "1" }
+    - { name: net.core.bpf_jit_harden, value: "2" }
+    - { name: kernel.yama.ptrace_scope, value: "1" }
+    - { name: fs.protected_symlinks, value: "1" }
+    - { name: fs.protected_hardlinks, value: "1" }
+    - { name: fs.protected_fifos, value: "2" }
+    - { name: fs.protected_regular, value: "2" }

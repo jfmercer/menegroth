@@ -1,0 +1,12 @@
+---
+harden_ssh_allow_users: ["{{ admin_user }}"]
+harden_reboot_time: "{{ unattended_reboot_time | default('04:30') }}"
+harden_base_packages:
+  - unattended-upgrades
+  - apt-listchanges
+  - fail2ban
+  - auditd
+  - chrony
+  - ufw
+  - curl
+  - jq

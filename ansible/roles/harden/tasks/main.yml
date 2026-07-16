@@ -1,0 +1,22 @@
+---
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ harden_base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Configure SSH hardening
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Configure host firewall (ufw)
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Configure unattended upgrades
+  ansible.builtin.import_tasks: updates.yml
+
+- name: Configure kernel hardening (sysctl)
+  ansible.builtin.import_tasks: sysctl.yml
+
+- name: Configure fail2ban and auditd
+  ansible.builtin.import_tasks: intrusion.yml

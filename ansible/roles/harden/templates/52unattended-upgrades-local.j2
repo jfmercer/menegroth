@@ -1,0 +1,15 @@
+// {{ ansible_managed }}
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+    "${distro_id}:${distro_codename}-updates";
+};
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+// Unattended reboots are deliberate: the root disk is unencrypted and the
+// LUKS data volume unlocks itself from Infisical at boot (see luks_volume
+// role), so kernel security updates apply without a human present.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ harden_reboot_time }}";

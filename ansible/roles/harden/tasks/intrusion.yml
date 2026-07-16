@@ -1,0 +1,49 @@
+---
+- name: Configure fail2ban sshd jail
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 1h
+      findtime = 10m
+      maxretry = 5
+      backend = systemd
+
+      [sshd]
+      enabled = true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Install baseline audit rules
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/50-baseline.rules
+    content: |
+      -D
+      -b 8192
+      ## Identity and privilege changes
+      -w /etc/passwd -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/sudoers -p wa -k privilege
+      -w /etc/sudoers.d/ -p wa -k privilege
+      ## SSH and secrets material
+      -w /etc/ssh/sshd_config.d/ -p wa -k sshd
+      -w /etc/infisical/ -p rwa -k secrets
+      ## Loading kernel modules
+      -w /sbin/insmod -p x -k modules
+      -w /sbin/modprobe -p x -k modules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart auditd
+
+- name: Enable services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - fail2ban
+    - auditd
+    - chrony

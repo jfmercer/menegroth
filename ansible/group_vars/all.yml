@@ -1,0 +1,5 @@
+---
+admin_user: admin
+
+# Window for unattended-upgrades automatic reboots (server local time, UTC).
+unattended_reboot_time: "04:30"

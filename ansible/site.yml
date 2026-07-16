@@ -1,0 +1,6 @@
+---
+- name: Provision the secure AI workflow server
+  hosts: ai_server
+  become: true
+  roles:
+    - harden
