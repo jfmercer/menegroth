@@ -1,0 +1,27 @@
+---
+# NemoClaw is alpha software — the installer ref is pinned and bumped
+# deliberately via PR, never floated on the "lkg" default.
+nemoclaw_install_tag: v0.0.83
+
+nemoclaw_user: nemoclaw
+nemoclaw_uid: 1500
+# Home on the encrypted volume: all agent state, workspaces, and sandbox
+# data land on /data without guessing NemoClaw's internal paths.
+nemoclaw_home: /data/nemoclaw
+
+# openclaw (default) | hermes | deepagents
+nemoclaw_agent: openclaw
+# Inference provider: anthropic | openai | openrouter | gemini | routed | ...
+nemoclaw_provider: anthropic
+# Infisical secret (under /server) holding that provider's API key, and the
+# env var name the provider expects.
+nemoclaw_provider_key_secret: ANTHROPIC_API_KEY
+nemoclaw_provider_key_env: ANTHROPIC_API_KEY
+# suggested = NemoClaw's hardened default network policy
+nemoclaw_policy_mode: suggested
+nemoclaw_sandbox_name: main
+
+# Host-level RAM backstop for everything the nemoclaw user runs (the
+# blueprint should also set per-sandbox limits; this catches runaways).
+nemoclaw_memory_high: 6G
+nemoclaw_memory_max: 7G

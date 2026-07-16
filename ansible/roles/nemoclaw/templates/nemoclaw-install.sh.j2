@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Run the NemoClaw installer, pinned and non-interactive, as the nemoclaw
+# user. Provider API key is fetched from Infisical at run time and passed
+# via the environment only.
+set -euo pipefail
+
+provider_key="$(/usr/local/bin/infisical-get {{ nemoclaw_provider_key_secret }})"
+
+runuser -u {{ nemoclaw_user }} -- env \
+  HOME={{ nemoclaw_home }} \
+  NEMOCLAW_INSTALL_TAG={{ nemoclaw_install_tag }} \
+  NEMOCLAW_NON_INTERACTIVE=1 \
+  NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
+  NEMOCLAW_AGENT={{ nemoclaw_agent }} \
+  NEMOCLAW_PROVIDER={{ nemoclaw_provider }} \
+  NEMOCLAW_POLICY_MODE={{ nemoclaw_policy_mode }} \
+  NEMOCLAW_SANDBOX_NAME={{ nemoclaw_sandbox_name }} \
+  {{ nemoclaw_provider_key_env }}="$provider_key" \
+  bash -c 'curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/{{ nemoclaw_install_tag }}/install.sh | bash'
+
+touch "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
+chown {{ nemoclaw_user }}:{{ nemoclaw_user }} "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
