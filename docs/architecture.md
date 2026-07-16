@@ -78,6 +78,8 @@ Secret layout in the `secure-ai-server` project, `prod` environment:
 /server/DATA_VOLUME_LUKS_KEY
 /server/ANTHROPIC_API_KEY  (and other LLM provider keys)
 /server/NTFY_TOPIC_URL     Alerting destination
+/server/RESTIC_REPOSITORY  (optional) restic backup target + password,
+/server/RESTIC_PASSWORD    only if ops_restic_enabled
 ```
 
 Two machine identities (universal auth): `ci` reads `/ci/*`, `server` reads
@@ -140,6 +142,18 @@ deliberate, reviewed bumps, not floating `lkg`.
 2. `ansible-playbook site.yml` (CI) applies roles in order:
    `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`.
 3. All roles are idempotent; the playbook runs on every merge to master.
+
+## Operations
+
+- **Backups:** Hetzner daily server backups (root disk, 7 slots, +20% server
+  cost). `/data` optionally backed up nightly by restic (client-side
+  encrypted) to any restic target — enable with `ops_restic_enabled: true`.
+- **Monitoring:** a 15-minute systemd timer checks `/data` mount state, disk
+  usage, failed units, Tailscale health, and OOM kills in the agent slice,
+  and pushes to an ntfy topic only when something is wrong.
+- **Updates:** unattended-upgrades with automatic reboots at 04:30 UTC; the
+  data volume re-unlocks itself after reboot (see D2).
+- **Verification:** `docs/verification.md` is the post-deploy checklist.
 
 ## Out of scope (for now)
 

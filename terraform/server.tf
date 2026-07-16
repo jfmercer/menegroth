@@ -11,6 +11,11 @@ resource "hcloud_server" "ai" {
   ssh_keys     = [hcloud_ssh_key.admin.id]
   firewall_ids = [hcloud_firewall.server.id]
 
+  # Hetzner-managed daily server backups (7 rotating slots, +20% server
+  # price). Covers the root disk; /data is covered by its own LUKS-encrypted
+  # volume + optional restic (ops role).
+  backups = true
+
   user_data = templatefile("${path.module}/templates/cloud-init.yaml.tftpl", {
     admin_user           = var.admin_user
     admin_ssh_public_key = var.admin_ssh_public_key

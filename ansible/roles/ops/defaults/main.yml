@@ -1,0 +1,13 @@
+---
+# Health checks run every 15 minutes; alerts go to an ntfy topic whose URL
+# (including the topic secret) lives in Infisical at /server/NTFY_TOPIC_URL.
+ops_healthcheck_interval: 15min
+ops_disk_alert_percent: 85
+
+# Optional restic backups of /data to any restic-supported repository
+# (e.g. a Hetzner Storage Box over SFTP). Requires RESTIC_REPOSITORY and
+# RESTIC_PASSWORD secrets under /server in Infisical.
+ops_restic_enabled: false
+ops_restic_schedule: "*-*-* 03:00:00" # daily, before the 04:30 reboot window
+ops_restic_keep_daily: 7
+ops_restic_keep_weekly: 4
