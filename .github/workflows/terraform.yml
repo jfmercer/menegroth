@@ -1,0 +1,106 @@
+---
+name: Terraform
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [master]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+
+permissions:
+  contents: read
+  pull-requests: write # plan output comment
+
+concurrency:
+  group: terraform # one plan/apply at a time — state lock friendliness
+  cancel-in-progress: false
+
+env:
+  # HCP Terraform organization (state-only backend). Set as a repository
+  # variable: Settings → Secrets and variables → Actions → Variables.
+  TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+  TF_IN_AUTOMATION: "true"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only two credentials live in GitHub secrets: the HCP Terraform token
+      # and the Infisical "ci" machine identity. Everything else (Hetzner
+      # token, ...) is pulled from Infisical here.
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: secure-ai-server
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - uses: terraform-linters/setup-tflint@v4
+      - name: tflint
+        run: tflint --format compact
+
+      - name: terraform plan
+        id: plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -no-color -input=false -out=tfplan
+        continue-on-error: true
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
+        with:
+          script: |
+            const outcome = "${{ steps.plan.outcome }}";
+            const plan = process.env.PLAN_STDOUT.length > 60000
+              ? process.env.PLAN_STDOUT.slice(0, 60000) + "\n… (truncated)"
+              : process.env.PLAN_STDOUT;
+            const body = [
+              `### Terraform plan — \`${outcome}\``,
+              "<details><summary>Show plan</summary>",
+              "",
+              "```terraform",
+              plan,
+              "```",
+              "</details>",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if plan failed
+        if: github.event_name == 'pull_request' && steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: terraform apply
+        if: github.event_name == 'push'
+        run: terraform apply -input=false -auto-approve
