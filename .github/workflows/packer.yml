@@ -1,0 +1,74 @@
+---
+name: Packer FDE image
+
+on:
+  workflow_dispatch: {} # building costs a temporary cx33 — trigger deliberately
+  pull_request:
+    paths: ["packer/**", ".github/workflows/packer.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packer
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: packer
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-packer@v3
+      - run: packer init .
+      - run: packer fmt -check .
+      - name: packer validate
+        run: >
+          packer validate
+          -var root_luks_passphrase=placeholder
+          -var boot_tailscale_authkey=placeholder
+          .
+
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # HCLOUD_TOKEN comes from /ci; the LUKS passphrase and boot auth key
+      # live under /unlock (readable by the CI identity for builds only).
+      - name: Fetch CI secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: secure-ai-server
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - name: Fetch unlock secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: secure-ai-server
+          env-slug: prod
+          secret-path: /unlock
+          export-type: env
+
+      - uses: hashicorp/setup-packer@v3
+      - run: packer init .
+      - name: packer build
+        env:
+          PKR_VAR_root_luks_passphrase: ${{ env.ROOT_LUKS_KEY }}
+          PKR_VAR_boot_tailscale_authkey: ${{ env.TS_BOOT_AUTHKEY }}
+        run: packer build .

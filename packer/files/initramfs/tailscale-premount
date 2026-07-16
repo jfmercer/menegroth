@@ -1,0 +1,46 @@
+#!/bin/sh
+# initramfs-tools init-premount SCRIPT: bring up DHCP networking and join
+# the tailnet as an ephemeral tag:boot-unlock node so the Mac unlock agent
+# can reach dropbear and supply the LUKS passphrase.
+PREREQ="udev"
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+  prereqs) prereqs; exit 0 ;;
+esac
+. /scripts/functions
+
+configure_networking
+
+modprobe tun 2>/dev/null || true
+mkdir -p /dev/net
+[ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200
+mkdir -p /var/lib/tailscale /var/run /tmp
+
+log_begin_msg "tailscale-boot: starting tailscaled"
+/usr/bin/tailscaled \
+  --state=/var/lib/tailscale/tailscaled.state \
+  --socket=/var/run/tailscale.sock \
+  --tun=tailscale0 >/var/log/tailscaled-boot.log 2>&1 &
+
+joined=0
+i=0
+while [ "$i" -lt 30 ]; do
+  if /usr/bin/tailscale --socket=/var/run/tailscale.sock up \
+      --auth-key="$(cat /etc/tailscale-boot/authkey)" \
+      --hostname="$(cat /etc/tailscale-boot/hostname)" \
+      --accept-dns=false --accept-routes=false >/dev/null 2>&1; then
+    joined=1
+    break
+  fi
+  i=$((i + 1))
+  sleep 2
+done
+
+if [ "$joined" -eq 1 ]; then
+  log_success_msg "tailscale-boot: tailnet joined, awaiting unlock"
+else
+  # Boot continues: the local console (Hetzner web console) still shows the
+  # passphrase prompt, so a failed tailnet join never bricks the box.
+  log_failure_msg "tailscale-boot: could not join tailnet; console unlock only"
+fi
+log_end_msg
