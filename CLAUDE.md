@@ -71,4 +71,4 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 - History is phase-per-commit (Phase 0–12), each leaving the system deployable; keep commits self-contained in that spirit.
 - `docs/architecture.md` is a decision log (D1–D5) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
-- The Infisical secret layout (`/ci`, `/server`, `/unlock` in project `secure-ai-server`, env `prod`) is documented in `docs/architecture.md` D3 — new secrets go in the least-privileged path.
+- The Infisical secret layout (`/ci`, `/server`, `/unlock` in project `menegroth`, env `prod`) is documented in `docs/architecture.md` D3 — new secrets go in the least-privileged path.

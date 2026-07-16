@@ -96,7 +96,7 @@ server needs secrets to provision the thing that serves secrets) and costs
 ~2 GB RAM. Infisical Cloud avoids both. Revisit self-hosting on a *separate*
 box later if data sovereignty becomes a requirement.
 
-Secret layout in the `secure-ai-server` project, `prod` environment:
+Secret layout in the `menegroth` project, `prod` environment:
 
 ```
 /ci/HCLOUD_TOKEN           Hetzner API token (used by Terraform in CI)

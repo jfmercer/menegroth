@@ -87,10 +87,10 @@ These steps happen once, by hand, before CI can take over. Everything after
 them is driven by pull requests.
 
 1. **HCP Terraform** — create an organization and a workspace named
-   `secure-ai-server`. Set the workspace **execution mode to "Local"** (we use
+   `menegroth`. Set the workspace **execution mode to "Local"** (we use
    it only for state storage and locking; runs happen in GitHub Actions).
    Create a user/team API token.
-2. **Infisical Cloud** — create a project (e.g. `secure-ai-server`) with a
+2. **Infisical Cloud** — create a project (e.g. `menegroth`) with a
    `prod` environment, then two [machine identities](https://infisical.com/docs/documentation/platform/identities/universal-auth):
    - `ci` — read access to `/ci/*` (holds `HCLOUD_TOKEN`, `TS_OAUTH_CLIENT_ID`,
      `TS_OAUTH_SECRET`, `ANSIBLE_BECOME_PASS` if used)

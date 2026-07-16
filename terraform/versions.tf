@@ -7,7 +7,7 @@ terraform {
   # variable (a GitHub Actions repository variable in CI).
   cloud {
     workspaces {
-      name = "secure-ai-server"
+      name = "menegroth"
     }
   }
 

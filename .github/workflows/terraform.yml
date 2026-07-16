@@ -42,7 +42,7 @@ jobs:
           client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
           client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
           domain: https://eu.infisical.com
-          project-slug: secure-ai-server
+          project-slug: menegroth
           env-slug: prod
           secret-path: /ci
           export-type: env
