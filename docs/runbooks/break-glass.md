@@ -1,7 +1,19 @@
 # Break-glass access
 
-The server has **no public inbound ports**. If Tailscale is down, broken by an
-upgrade, or the tailnet ACLs lock you out, use one of these paths — in order.
+The server has **no public inbound ports** and a **LUKS2-encrypted root**. If
+Tailscale is down, the Mac unlock agent is unavailable, or the tailnet ACLs
+lock you out, use one of these paths — in order.
+
+## 0. Server stuck at the boot unlock prompt
+
+If the server rebooted and nothing unlocked it (Mac offline, initramfs
+tailnet join failed):
+
+1. <https://console.hetzner.cloud> → `ai-server` → **Console** (>_ icon).
+2. The screen shows the `cryptsetup` passphrase prompt for `root_crypt`.
+3. Type the root passphrase (recovery copy: Infisical `/unlock/ROOT_LUKS_KEY`).
+4. Boot continues normally; investigate why the agent didn't fire
+   (`macos/README.md` troubleshooting).
 
 ## 1. Hetzner web console (always works)
 

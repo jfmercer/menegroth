@@ -36,27 +36,54 @@ Ansible would still need GitHub Actions, leaving two pipelines to maintain.
 *Fallback:* Hetzner Object Storage as an S3-compatible backend (Terraform ≥1.10
 native lockfile) if we ever want to drop the HCP dependency; costs ~€5/mo.
 
-### D2 — Encryption: LUKS2 data volume, unencrypted root
+### D2 — Encryption: true FDE — LUKS2 root + LUKS2 data volume (revised)
 
-"Full disk encryption" on a cloud VPS is weaker than it sounds: the provider
-can always inspect RAM (where the key lives while mounted), and an encrypted
-root requires manual passphrase entry via initramfs SSH on **every** reboot,
-which conflicts with unattended kernel-security reboots.
+*(Revision 2026-07-16: the original design left root unencrypted for
+unattended reboots. Requirement changed to full disk encryption on all
+volumes, with the reboot problem solved by automated remote unlock.)*
 
-Instead: a separate Hetzner Volume is LUKS2-encrypted and mounted at `/data`.
-Everything sensitive (agent workspaces, tokens cached on disk, app state)
-lives there. The unlock key is fetched from Infisical at boot by a systemd
-unit and never stored on the root disk.
+**Root volume:** the server boots from a custom snapshot (built by the
+`packer/` pipeline) with a LUKS2-encrypted root and unencrypted `/boot`. At
+boot, the initramfs joins the tailnet as an **ephemeral** node
+(`ai-server-boot`, `tag:boot-unlock`) and runs dropbear (public-key only,
+forced command `cryptroot-unlock`, no forwarding). The Mac unlock agent
+(`macos/`) detects the boot node and pipes the passphrase from the macOS
+Keychain over Tailscale SSH transport. The boot node logs itself out before
+the pivot to the real root. Fallback: type the passphrase in the Hetzner web
+console — always available, cannot be locked out.
+
+**Data volume:** unchanged — LUKS2, unlocked at boot by `data-volume.service`
+with a key fetched from Infisical (`/server/DATA_VOLUME_LUKS_KEY`). Its
+Infisical machine-identity credential now rests on the encrypted root, which
+closes the old "credential on plaintext disk" gap.
+
+**Key custody:** the root passphrase lives in the Mac's Keychain, with a
+recovery copy in Infisical under `/unlock/` — a path the **server's own
+identity cannot read** (only the human/CI identities can). The server can
+never unlock itself.
 
 **Honest threat model:**
 
-- ✅ Protects against: detached/recycled volumes, volume snapshots/backups at
-  rest, Hetzner disk disposal.
-- ⚠️ Partial: a live-compromised hypervisor can read RAM and thus the key.
-- ⚠️ The Infisical machine-identity credential on the root disk can fetch the
-  key. Mitigations: the identity is scoped to `/server/*` read-only, its
-  client secret is revocable in seconds, access is logged in Infisical's
-  audit log, and the credential file is root-only `0600`.
+- ✅ Protects at rest: disk images, snapshots, backups, recycled/detached
+  disks, Hetzner disk disposal — for root *and* data.
+- ⚠️ A live-compromised hypervisor can still read RAM (keys included). FDE on
+  a cloud VM protects data at rest, not against a live host-level adversary.
+- ⚠️ On unencrypted `/boot`: the initramfs contains the boot node's tailnet
+  auth key. A disk thief cannot decrypt anything with it, but could
+  impersonate the boot prompt until the key is revoked; tailnet ACLs restrict
+  the tag to *receiving* port 22 from the user's devices only. Rotate by
+  rebuilding the image (revoke old key in the admin console).
+- ⚠️ Kernel updates rebuild the initramfs; the tailscale hook re-embeds the
+  unlock path each time. The kernel-update survival test in `packer/README.md`
+  is mandatory after image changes.
+- ℹ️ Reboots complete only while an unlocker is reachable (Mac awake, or a
+  human at the console). Unattended-upgrade reboots are scheduled in
+  Mac-awake hours (D2b below).
+
+**D2b — reboot orchestration:** unattended-upgrades reboots at 19:00 UTC
+(configurable, chosen for Mac-awake hours). If the Mac misses it, the server
+waits at the unlock prompt; the Mac agent alerts (ntfy) when a boot node is
+online without a successful unlock, and unlocks as soon as it wakes.
 
 ### D3 — Secrets: Infisical Cloud (EU)
 
@@ -80,7 +107,15 @@ Secret layout in the `secure-ai-server` project, `prod` environment:
 /server/NTFY_TOPIC_URL     Alerting destination
 /server/RESTIC_REPOSITORY  (optional) restic backup target + password,
 /server/RESTIC_PASSWORD    only if ops_restic_enabled
+/unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
+                           the Mac's Keychain). NOT readable by the server identity.
+/unlock/TS_BOOT_AUTHKEY    Ephemeral pre-authorized tailnet key for the initramfs
+                           boot node (embedded at image build time)
 ```
+
+The `/unlock` path is readable by the CI identity (image builds) and the
+human — **never** by the `server` identity: the server must not be able to
+unlock itself.
 
 Two machine identities (universal auth): `ci` reads `/ci/*`, `server` reads
 `/server/*`. GitHub repo secrets contain only the `ci` identity credentials

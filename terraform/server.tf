@@ -3,10 +3,19 @@ resource "hcloud_ssh_key" "admin" {
   public_key = var.admin_ssh_public_key
 }
 
+# Newest FDE snapshot from the Packer pipeline. New snapshots do NOT
+# auto-replace the server (see ignore_changes below); roll deliberately with:
+#   terraform apply -replace=hcloud_server.ai
+data "hcloud_image" "fde" {
+  with_selector     = var.fde_image_selector
+  most_recent       = true
+  with_architecture = "x86"
+}
+
 resource "hcloud_server" "ai" {
   name         = var.server_name
   server_type  = var.server_type
-  image        = var.image
+  image        = data.hcloud_image.fde.id
   location     = var.location
   ssh_keys     = [hcloud_ssh_key.admin.id]
   firewall_ids = [hcloud_firewall.server.id]
@@ -26,9 +35,11 @@ resource "hcloud_server" "ai" {
     ipv6_enabled = true
   }
 
-  # cloud-init contents change forces replacement otherwise; the server is
-  # provisioned by Ansible after creation, so ignore later user_data edits.
+  # user_data: cloud-init edits would force replacement; Ansible owns
+  # post-create config. image: a newer FDE snapshot must not silently
+  # replace the server — roll with `terraform apply -replace=hcloud_server.ai`
+  # after verifying the new image (packer/README.md).
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [user_data, image]
   }
 }

@@ -16,10 +16,12 @@ variable "location" {
   default     = "nbg1"
 }
 
-variable "image" {
-  description = "OS image"
+# The server boots from the FDE snapshot produced by the Packer pipeline
+# (packer/README.md) — build one BEFORE the first apply of this config.
+variable "fde_image_selector" {
+  description = "Label selector matching the Packer-built FDE snapshot"
   type        = string
-  default     = "ubuntu-24.04"
+  default     = "fde=true,role=ai-server-base"
 }
 
 variable "admin_user" {
