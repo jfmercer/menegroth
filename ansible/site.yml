@@ -6,3 +6,4 @@
     - harden
     - tailscale
     - infisical
+    - luks_volume

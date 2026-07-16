@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Unlock and mount the encrypted data volume
+# Needs outbound internet (Infisical) — wait for the network.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/unlock-data-volume
+# Infisical Cloud may not be reachable the instant the network is "online";
+# retry rather than leaving /data locked after boot.
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

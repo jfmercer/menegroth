@@ -35,6 +35,12 @@ variable "admin_ssh_public_key" {
   default = "ssh-ed25519 AAAA_REPLACE_ME ai-server-admin"
 }
 
+variable "data_volume_size" {
+  description = "Size of the encrypted data volume in GB (growable later; shrinking requires recreate+restore)"
+  type        = number
+  default     = 20
+}
+
 variable "bootstrap_admin_ip_cidr" {
   description = <<-EOT
     Single admin IP (CIDR) allowed to reach SSH during initial buildout.

@@ -1,0 +1,9 @@
+---
+luks_volume_mapper: data
+luks_volume_mount: /data
+luks_volume_fs: ext4
+luks_volume_mount_opts: nosuid,nodev
+# Name of the secret (under /server) holding the LUKS passphrase.
+luks_volume_key_secret: DATA_VOLUME_LUKS_KEY
+# Hetzner volumes appear under /dev/disk/by-id with this prefix.
+luks_volume_device_glob: /dev/disk/by-id/scsi-0HC_Volume_*
