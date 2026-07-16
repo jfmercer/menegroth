@@ -3,10 +3,12 @@
 #
 # Runs every 30 s via launchd (com.ai-server.unlock.plist). When the server
 # reboots, its initramfs joins the tailnet as an ephemeral node tagged
-# tag:boot-unlock; this script detects that node, fetches the LUKS
-# passphrase from the macOS Keychain, and pipes it over SSH into the forced
-# cryptroot-unlock command. The passphrase is never written to disk or
-# passed as an argument.
+# tag:boot-unlock; this script detects that node, reads the LUKS passphrase
+# from 1Password (service account scoped read-only to one dedicated vault),
+# and pipes it over SSH into the forced cryptroot-unlock command. The
+# passphrase is never written to disk or passed as an argument. 1Password is
+# only contacted when a boot node is actually present — the ordinary 30 s
+# poll makes zero API calls.
 set -euo pipefail
 
 CONFIG="${HOME}/.config/ai-server-unlock/config"
@@ -15,33 +17,44 @@ mkdir -p "$STATE_DIR"
 
 # Defaults, overridable in $CONFIG.
 BOOT_TAG="tag:boot-unlock"
-KEYCHAIN_SERVICE="ai-server-luks"
-SSH_KEY="${HOME}/.ssh/ai-server-unlock"
-NTFY_KEYCHAIN_SERVICE="ai-server-ntfy" # keychain item holding the ntfy topic URL
-COOLDOWN_SECONDS=120                   # don't re-attempt within this window
-STUCK_ALERT_SECONDS=600                # alert if the prompt sits unlocked this long
+OP_TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
+OP_VAULT="AI-Server-Unlock"
+OP_LUKS_REF="op://${OP_VAULT}/luks-passphrase/password"
+OP_SSH_KEY_REF="op://${OP_VAULT}/unlock-ssh-key/private key?ssh-format=openssh"
+OP_NTFY_REF="op://${OP_VAULT}/ntfy/url"
+COOLDOWN_SECONDS=120    # don't re-attempt within this window
+STUCK_ALERT_SECONDS=600 # alert if the prompt sits unlocked this long
 # shellcheck disable=SC1090
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
-ts_bin() {
-  if command -v tailscale >/dev/null 2>&1; then
-    command -v tailscale
-  elif [[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
-    echo "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-  else
-    echo "ai-server-unlock: tailscale CLI not found" >&2
-    exit 1
+find_bin() { # $1=name, remaining args = fallback paths (launchd has a bare PATH)
+  local name="$1"
+  shift
+  if command -v "$name" >/dev/null 2>&1; then
+    command -v "$name"
+    return
   fi
+  local p
+  for p in "$@"; do
+    [[ -x "$p" ]] && { echo "$p"; return; }
+  done
+  echo "ai-server-unlock: $name not found" >&2
+  return 1
+}
+
+TS="$(find_bin tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
+
+op_read() { # $1=secret reference — token comes from the 0600 token file
+  OP_SERVICE_ACCOUNT_TOKEN="$(cat "$OP_TOKEN_FILE")" "$OP" read "$1"
 }
 
 notify() { # $1=priority $2=title $3=body — best-effort, never fatal
   local url
-  url="$(security find-generic-password -s "$NTFY_KEYCHAIN_SERVICE" -w 2>/dev/null)" || return 0
+  url="$(op_read "$OP_NTFY_REF" 2>/dev/null)" || return 0
   curl -fsS -m 10 -H "Priority: $1" -H "Title: $2" -d "$3" "$url" >/dev/null 2>&1 || true
 }
 
-# ---- Find an online boot node -------------------------------------------
-TS="$(ts_bin)"
+# ---- Find an online boot node ---------------------------------------------
 boot_ip="$("$TS" status --json 2>/dev/null | /usr/bin/python3 -c "
 import json, sys
 try:
@@ -61,6 +74,9 @@ if [[ -z "$boot_ip" ]]; then
   rm -f "$STATE_DIR/first_seen" "$STATE_DIR/stuck_alerted"
   exit 0
 fi
+
+# A boot node exists — from here on we need 1Password.
+OP="$(find_bin op /opt/homebrew/bin/op /usr/local/bin/op)"
 
 # Track when we first saw this boot prompt (used for stuck-at-boot alerting).
 [[ -f "$STATE_DIR/first_seen" ]] || date +%s > "$STATE_DIR/first_seen"
@@ -85,14 +101,26 @@ if [[ -f "$STATE_DIR/last_attempt" ]]; then
 fi
 echo "$now" > "$STATE_DIR/last_attempt"
 
-# ---- Unlock ---------------------------------------------------------------
-passphrase="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -w)" || {
-  notify high "AI server unlock FAILED" "Boot node online but Keychain item '$KEYCHAIN_SERVICE' unreadable."
+# ---- Unlock ----------------------------------------------------------------
+passphrase="$(op_read "$OP_LUKS_REF")" || {
+  notify high "AI server unlock FAILED" \
+    "Boot node online but 1Password read failed ($OP_LUKS_REF) — token revoked/expired? See macos/README.md."
   exit 1
 }
 
+# The SSH key rests only in 1Password; materialize it for this one ssh call
+# in a private tmp dir and remove it on any exit path.
+keydir="$(mktemp -d "${TMPDIR:-/tmp}/ai-unlock.XXXXXX")"
+chmod 700 "$keydir"
+trap 'rm -rf "$keydir"' EXIT
+if ! op_read "$OP_SSH_KEY_REF" > "$keydir/id"; then
+  notify high "AI server unlock FAILED" "1Password read of the unlock SSH key failed."
+  exit 1
+fi
+chmod 600 "$keydir/id"
+
 if printf '%s\n' "$passphrase" | ssh \
-    -i "$SSH_KEY" \
+    -i "$keydir/id" \
     -o BatchMode=yes \
     -o IdentitiesOnly=yes \
     -o ConnectTimeout=10 \

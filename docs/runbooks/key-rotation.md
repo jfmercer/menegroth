@@ -2,8 +2,9 @@
 
 ## Root volume passphrase
 
-The root passphrase lives in the Mac Keychain (primary) and Infisical
-`/unlock/ROOT_LUKS_KEY` (recovery). On the server (as root):
+The root passphrase lives in the 1Password `AI-Server-Unlock` vault
+(primary; item `luks-passphrase`) and Infisical `/unlock/ROOT_LUKS_KEY`
+(recovery). On the server (as root):
 
 ```bash
 # 1. Generate and stage the new passphrase:
@@ -16,7 +17,8 @@ cryptsetup luksAddKey /dev/sda3
 
 # 3. Verify, then update BOTH stores:
 #    - Infisical: overwrite /unlock/ROOT_LUKS_KEY, delete the _NEW entry
-#    - Mac: security add-generic-password -s ai-server-luks -a "$USER" -w '<new>' -U
+#    - 1Password: edit the luks-passphrase item IN THE APP (avoid putting
+#      the value on an `op` command line — argv is visible to other processes)
 
 # 4. Remove the old keyslot:
 cryptsetup luksRemoveKey /dev/sda3   # supply the OLD passphrase

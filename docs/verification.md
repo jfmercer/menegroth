@@ -30,7 +30,11 @@ after any significant change). They mirror the build phases.
 - [ ] Kernel-update survival: reinstall the kernel package, reboot, boot node
       still joins (initramfs hook re-embedded tailscale).
 - [ ] Hands-off `sudo reboot` → Mac agent unlocks within ~2–3 min, ntfy
-      "unlocked" notification arrives, all services recover.
+      "unlocked" notification arrives, all services recover — **with the
+      1Password app locked and quit** (proves the service-account path).
+- [ ] Revoke-token drill: revoke the 1Password service account, reboot →
+      agent sends the unlock-FAILED alert; recover via console (runbook §0),
+      then rotate the token per `macos/README.md`.
 - [ ] Mac asleep during reboot → server waits; on wake the agent unlocks;
       after 10+ min stuck, the urgent "STUCK at boot" ntfy fires.
 - [ ] The boot node disappears from the tailnet after pivot (ephemeral +

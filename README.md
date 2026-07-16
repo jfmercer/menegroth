@@ -47,7 +47,7 @@ Key properties:
   built by the `packer/` pipeline; unencrypted `/boot` only) and the data
   volume is LUKS2. At boot the initramfs joins the tailnet as an ephemeral
   `tag:boot-unlock` node and a launchd agent on your Mac (`macos/`) delivers
-  the passphrase from the Keychain automatically — reboots are hands-free
+  the passphrase from 1Password automatically — reboots are hands-free
   while your Mac is awake, and the Hetzner console is the manual fallback.
 - **Dark host.** The Hetzner Cloud Firewall drops all inbound traffic. SSH and
   every service are reachable only over the tailnet (Tailscale requires no
@@ -59,8 +59,9 @@ Key properties:
   (Hetzner token, Tailscale OAuth client, ntfy topic, LLM API keys) from
   Infisical at run time.
 - **Key custody is split.** The data-volume key comes from Infisical (the
-  server's own identity can read it); the root passphrase lives in the Mac's
-  Keychain with a recovery copy under Infisical `/unlock` — a path the server
+  server's own identity can read it); the root passphrase lives in a
+  dedicated 1Password vault (service-account, read-only, that vault only)
+  with a recovery copy under Infisical `/unlock` — a path the server
   identity can never read, so the server cannot unlock itself.
 - **Agents are sandboxed.** NemoClaw runs each agent inside an OpenShell
   container with a blueprint controlling filesystem scope, network egress, and
@@ -75,7 +76,7 @@ Full design rationale and the decision log live in
 terraform/            Hetzner infrastructure (server, firewall, volume, SSH key)
 packer/               FDE image pipeline (LUKS2 root + tailnet-unlock initramfs)
 ansible/              Provisioning: inventory, site.yml, roles/
-macos/                Mac unlock agent (launchd + Keychain + ntfy)
+macos/                Mac unlock agent (launchd + 1Password + ntfy)
 .github/workflows/    terraform.yml, ansible.yml, packer.yml
 docs/                 architecture.md, verification.md, runbooks/
 ```
@@ -110,8 +111,10 @@ them is driven by pull requests.
    and you, **not** by the `server` identity): `ROOT_LUKS_KEY`
    (`openssl rand -base64 48`) and `TS_BOOT_AUTHKEY` (reusable + ephemeral +
    pre-authorized, restricted to `tag:boot-unlock`). Add the `tag:boot-unlock`
-   ACLs (see `packer/README.md`). Run `macos/install.sh` on your Mac and put
-   the printed public key into `packer/fde-image.pkr.hcl`.
+   ACLs (see `packer/README.md`). On your Mac: create the 1Password
+   `AI-Server-Unlock` vault + scoped service account (`macos/README.md`),
+   run `macos/install.sh`, and put the printed public key into
+   `packer/fde-image.pkr.hcl`.
 7. **Build the FDE image before the first Terraform apply**: run the
    "Packer FDE image" workflow (workflow_dispatch) and verify it per
    `packer/README.md` — Terraform selects the newest `fde=true` snapshot.

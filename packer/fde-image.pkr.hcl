@@ -13,7 +13,7 @@ packer {
 variable "root_luks_passphrase" {
   type      = string
   sensitive = true
-  # The same passphrase the Mac unlock agent will hold in Keychain; recovery
+  # The same passphrase the Mac unlock agent reads from 1Password; recovery
   # copy lives in Infisical /unlock/ROOT_LUKS_KEY.
 }
 

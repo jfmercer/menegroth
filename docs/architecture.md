@@ -47,8 +47,8 @@ volumes, with the reboot problem solved by automated remote unlock.)*
 boot, the initramfs joins the tailnet as an **ephemeral** node
 (`ai-server-boot`, `tag:boot-unlock`) and runs dropbear (public-key only,
 forced command `cryptroot-unlock`, no forwarding). The Mac unlock agent
-(`macos/`) detects the boot node and pipes the passphrase from the macOS
-Keychain over Tailscale SSH transport. The boot node logs itself out before
+(`macos/`) detects the boot node and pipes the passphrase from 1Password
+over Tailscale SSH transport. The boot node logs itself out before
 the pivot to the real root. Fallback: type the passphrase in the Hetzner web
 console — always available, cannot be locked out.
 
@@ -57,10 +57,14 @@ with a key fetched from Infisical (`/server/DATA_VOLUME_LUKS_KEY`). Its
 Infisical machine-identity credential now rests on the encrypted root, which
 closes the old "credential on plaintext disk" gap.
 
-**Key custody:** the root passphrase lives in the Mac's Keychain, with a
-recovery copy in Infisical under `/unlock/` — a path the **server's own
-identity cannot read** (only the human/CI identities can). The server can
-never unlock itself.
+**Key custody:** the root passphrase lives in a dedicated 1Password vault
+(`AI-Server-Unlock`), read by the Mac agent via a service account scoped
+read-only to that single vault (service accounts can never see the Private
+vault). A recovery copy sits in Infisical under `/unlock/` — a path the
+**server's own identity cannot read** (only the human/CI identities can).
+The server can never unlock itself. Apple Keychain and the Passwords app
+hold no project secrets; the only on-disk Mac credential is the 0600
+service-account token file.
 
 **Honest threat model:**
 
@@ -108,7 +112,7 @@ Secret layout in the `secure-ai-server` project, `prod` environment:
 /server/RESTIC_REPOSITORY  (optional) restic backup target + password,
 /server/RESTIC_PASSWORD    only if ops_restic_enabled
 /unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
-                           the Mac's Keychain). NOT readable by the server identity.
+                           the Mac's 1Password vault). NOT readable by the server identity.
 /unlock/TS_BOOT_AUTHKEY    Ephemeral pre-authorized tailnet key for the initramfs
                            boot node (embedded at image build time)
 ```
