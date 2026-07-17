@@ -90,12 +90,23 @@ them is driven by pull requests.
    `menegroth`. Set the workspace **execution mode to "Local"** (we use
    it only for state storage and locking; runs happen in GitHub Actions).
    Create a user/team API token.
-2. **Infisical Cloud** — create a project (e.g. `menegroth`) with a
-   `prod` environment, then two [machine identities](https://infisical.com/docs/documentation/platform/identities/universal-auth):
-   - `ci` — read access to `/ci/*` (holds `HCLOUD_TOKEN`, `TS_OAUTH_CLIENT_ID`,
-     `TS_OAUTH_SECRET`, `ANSIBLE_BECOME_PASS` if used)
-   - `server` — read access to `/server/*` (holds `DATA_VOLUME_LUKS_KEY`,
-     LLM API keys, `NTFY_TOPIC_URL`)
+2. **Infisical Cloud** (EU region — the workflows target `eu.infisical.com`) —
+   create a project (e.g. `menegroth`) with a `prod` environment, then two
+   [machine identities](https://infisical.com/docs/documentation/platform/identities/universal-auth).
+   Identities are org-level objects: create each, give it Universal Auth (which
+   yields a Client ID + Client Secret), then add it to the project with a role
+   scoped to the paths below.
+   - `ci` — read access to `/ci/*` **and `/unlock/*`** (holds `HCLOUD_TOKEN`,
+     `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `ANSIBLE_BECOME_PASS` if used; the
+     Packer image build also fetches `/unlock/*` as this identity — see step 6)
+   - `server` — read access to `/server/*` only (holds `DATA_VOLUME_LUKS_KEY`,
+     LLM API keys, `NTFY_TOPIC_URL`). It must **never** be granted `/unlock/*` —
+     that is what stops the server from unlocking its own root.
+
+   The `ci` Client ID/Secret go into GitHub repo secrets (step 4); the `server`
+   Client ID/Secret go into Infisical at `/ci/SERVER_IDENTITY_CLIENT_ID` and
+   `/ci/SERVER_IDENTITY_CLIENT_SECRET`, where the Ansible `infisical` role reads
+   them and delivers them onto the host.
 3. **Tailscale** — in the admin console create an OAuth client with the
    `auth_keys` scope tagged `tag:ci`, and add the ACL tags/rules from
    [docs/architecture.md](docs/architecture.md#tailscale-acls). Store the
