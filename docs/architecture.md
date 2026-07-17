@@ -149,12 +149,20 @@ Tailnet policy needed (configured in the Tailscale admin console):
 ```jsonc
 {
   "tagOwners": {
-    "tag:server": ["autogroup:admin"],
-    "tag:ci":     ["autogroup:admin"]
+    "tag:server":      ["autogroup:admin"],
+    "tag:ci":          ["autogroup:admin"],
+    "tag:boot-unlock": ["autogroup:admin"]
   },
   "acls": [
+    // your devices reach the server on any port over the tailnet
     { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server:*"] },
-    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:server:22"] }
+    // CI runners reach only SSH on the server
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:server:22"] },
+    // your devices reach the initramfs unlock prompt; the boot node initiates
+    // nothing (no rule has tag:boot-unlock as src). dropbear is ordinary SSH
+    // over the tailnet, not Tailscale SSH — hence an acls port-22 rule, not an
+    // ssh block entry.
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:boot-unlock:22"] }
   ],
   "ssh": [
     { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server"], "users": ["admin", "root"] },
@@ -162,6 +170,11 @@ Tailnet policy needed (configured in the Tailscale admin console):
   ]
 }
 ```
+
+The `tag:boot-unlock` **auth key** (reusable, ephemeral, pre-authorized) is
+created during bootstrap step 6 and stored at `/unlock/TS_BOOT_AUTHKEY`; the
+`tagOwners`/`acls` entries above are added earlier (step 3) so the policy is
+edited once.
 
 ### D5 — Agent runtime: NVIDIA NemoClaw on OpenShell
 

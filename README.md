@@ -107,10 +107,26 @@ them is driven by pull requests.
    Client ID/Secret go into Infisical at `/ci/SERVER_IDENTITY_CLIENT_ID` and
    `/ci/SERVER_IDENTITY_CLIENT_SECRET`, where the Ansible `infisical` role reads
    them and delivers them onto the host.
-3. **Tailscale** — in the admin console create an OAuth client with the
-   `auth_keys` scope tagged `tag:ci`, and add the ACL tags/rules from
-   [docs/architecture.md](docs/architecture.md#tailscale-acls). Store the
-   client ID/secret in Infisical under `/ci/`.
+3. **Tailscale** — in the admin console (**Access controls** → the tailnet
+   policy file editor):
+   1. Paste the ACL policy from
+      [docs/architecture.md](docs/architecture.md#tailscale-acls) — do this
+      **first**, since you cannot mint a tagged key or OAuth client for a tag
+      that has no `tagOwners` entry. Include `tag:boot-unlock` now (used in
+      step 6) so the policy is edited only once.
+   2. **OAuth client** (Settings → OAuth clients): create one with the
+      `auth_keys` write scope, tagged `tag:ci`. Store its client ID/secret in
+      Infisical at `/ci/TS_OAUTH_CLIENT_ID` and `/ci/TS_OAUTH_SECRET`. CI mints
+      an ephemeral `tag:ci` key from this on every run.
+   3. **Server auth key** (Settings → Keys → Generate auth key): **reusable**,
+      **pre-authorized**, **NOT ephemeral** (the server is a persistent node),
+      tagged `tag:server`. Store it in Infisical at `/ci/TS_SERVER_AUTHKEY` —
+      the Ansible `tailscale` role reads it for the server's first join. After
+      the server is up, disable key expiry on its node (Machines → server) so a
+      set-and-forget box never drops off the tailnet.
+
+   The `tag:boot-unlock` **key** itself (reusable, *ephemeral*, pre-authorized)
+   is created in step 6 and stored under `/unlock/`, not here.
 4. **GitHub repo secrets** — set exactly three:
    `TF_API_TOKEN` (HCP Terraform), `INFISICAL_CLIENT_ID`,
    `INFISICAL_CLIENT_SECRET` (the `ci` machine identity).
