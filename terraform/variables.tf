@@ -34,7 +34,7 @@ variable "admin_ssh_public_key" {
   description = "Public half of the Ansible/admin bootstrap SSH key (the private half lives in Infisical at /ci/SSH_PRIVATE_KEY)"
   type        = string
   # REPLACE during bootstrap (step 5 in README):
-  default = "ssh-ed25519 AAAA_REPLACE_ME ai-server-admin"
+  default = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJWzoCUkE6MgvKU4iDnhjpkJ8NmCHBZz4AAf6FbanYrN ai-server-admin"
 
   # Fail the plan fast instead of letting Hetzner reject the key (or worse,
   # accept a wrong one) at apply time.
