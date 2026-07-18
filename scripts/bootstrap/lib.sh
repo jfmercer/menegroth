@@ -101,7 +101,7 @@ load_env() {
   : "${SERVER_TAG:=tag:server}"
   : "${CI_TAG:=tag:ci}"
   : "${BOOT_TAG:=tag:boot-unlock}"
-  : "${OP_VAULT:=AI-Server-Unlock}"
+  : "${OP_VAULT:=Menegroth}"
   : "${BOOT_HOSTNAME:=ai-server-boot}"
   : "${ADMIN_SSH_COMMENT:=ai-server-admin}"
   : "${NTFY_BASE:=https://ntfy.sh}"

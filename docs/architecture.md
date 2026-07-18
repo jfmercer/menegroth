@@ -58,7 +58,7 @@ Infisical machine-identity credential now rests on the encrypted root, which
 closes the old "credential on plaintext disk" gap.
 
 **Key custody:** the root passphrase lives in a dedicated 1Password vault
-(`AI-Server-Unlock`), read by the Mac agent via a service account scoped
+(`Menegroth`), read by the Mac agent via a service account scoped
 read-only to that single vault (service accounts can never see the Private
 vault). A recovery copy sits in Infisical under `/unlock/` — a path the
 **server's own identity cannot read** (only the human/CI identities can).

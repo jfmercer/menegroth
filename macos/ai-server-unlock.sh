@@ -18,7 +18,7 @@ mkdir -p "$STATE_DIR"
 # Defaults, overridable in $CONFIG.
 BOOT_TAG="tag:boot-unlock"
 OP_TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
-OP_VAULT="AI-Server-Unlock"
+OP_VAULT="Menegroth"
 OP_LUKS_REF="op://${OP_VAULT}/luks-passphrase/password"
 OP_SSH_KEY_REF="op://${OP_VAULT}/unlock-ssh-key/private key?ssh-format=openssh"
 OP_NTFY_REF="op://${OP_VAULT}/ntfy/url"

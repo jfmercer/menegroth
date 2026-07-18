@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 BIN="${HOME}/.local/bin/ai-server-unlock"
 PLIST_DEST="${HOME}/Library/LaunchAgents/com.ai-server.unlock.plist"
 TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
-OP_VAULT="AI-Server-Unlock"
+OP_VAULT="Menegroth"
 
 OP="$(command -v op || true)"
 [[ -z "$OP" && -x /opt/homebrew/bin/op ]] && OP=/opt/homebrew/bin/op

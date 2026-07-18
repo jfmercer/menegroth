@@ -2,7 +2,7 @@
 
 ## Root volume passphrase
 
-The root passphrase lives in the 1Password `AI-Server-Unlock` vault
+The root passphrase lives in the 1Password `Menegroth` vault
 (primary; item `luks-passphrase`) and Infisical `/unlock/ROOT_LUKS_KEY`
 (recovery). On the server (as root):
 

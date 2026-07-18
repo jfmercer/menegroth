@@ -34,7 +34,7 @@ Hetzner web console always works as manual fallback.
   `/unlock/TS_BOOT_AUTHKEY`.
 - Generate the root passphrase (`openssl rand -base64 48`); store it in
   Infisical at `/unlock/ROOT_LUKS_KEY` **and** in the 1Password
-  `AI-Server-Unlock` vault (`macos/README.md`).
+  `Menegroth` vault (`macos/README.md`).
 - Put the Mac unlock agent's SSH **public** key in `fde-image.pkr.hcl`
   (`mac_unlock_ssh_pubkey`).
 - Grant the CI machine identity read access to `/unlock` (build-time only).

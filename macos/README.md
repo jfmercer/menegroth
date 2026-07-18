@@ -13,7 +13,7 @@ boot prompt sits unanswered for 10+ minutes.
 All unlock secrets live in a dedicated 1Password vault — nothing goes in
 Apple Keychain or the Passwords app:
 
-| Vault item (`AI-Server-Unlock`) | Field | Purpose |
+| Vault item (`Menegroth`) | Field | Purpose |
 |---|---|---|
 | `luks-passphrase` | `password` | Root FDE passphrase (recovery copy: Infisical `/unlock/ROOT_LUKS_KEY`) |
 | `unlock-ssh-key` | `private key` / `public key` | SSH key trusted by the initramfs dropbear (generated inside 1Password) |
@@ -41,13 +41,13 @@ a boot node is actually online — the routine 30 s poll makes no API calls
 - 1Password CLI: `brew install 1password-cli`.
 - Xcode Command Line Tools (`/usr/bin/python3` parses `tailscale status`).
 - One-time 1Password setup is done by the bootstrap script
-  (`scripts/bootstrap/10-onepassword.sh`): it creates the `AI-Server-Unlock`
+  (`scripts/bootstrap/10-onepassword.sh`): it creates the `Menegroth`
   vault, the `luks-passphrase` / `ntfy` / `unlock-ssh-key` items, and a
   read-only service account, and writes the service-account token to
   `~/.config/ai-server-unlock/op-token`. Run that before `./install.sh`.
   To do it by hand instead: create the vault + `luks-passphrase`/`ntfy` items,
   generate the key with
-  `op item create --category 'SSH Key' --title unlock-ssh-key --vault AI-Server-Unlock --ssh-generate-key ed25519`,
+  `op item create --category 'SSH Key' --title unlock-ssh-key --vault Menegroth --ssh-generate-key ed25519`,
   and create a read-only service account scoped to that vault only.
 
 ## Install

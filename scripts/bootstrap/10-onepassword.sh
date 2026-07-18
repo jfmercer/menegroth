@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Phase 10 — 1Password: the Mac-side unlock vault and its read-only agent.
 #
-# Creates the AI-Server-Unlock vault and its three items (luks-passphrase,
+# Creates the Menegroth vault and its three items (luks-passphrase,
 # ntfy, unlock-ssh-key), plus a read-only service account whose token the Mac
 # unlock agent uses. 1Password is the *primary* home of the root passphrase;
 # phase 30 copies it (and the two public values) into Infisical.
