@@ -1,0 +1,19 @@
+---
+# Keeps the SHA-pinned actions fresh: Dependabot understands the
+# `@<sha> # v<tag>` convention and PRs both the pin and the comment.
+# Action versions are updated ONLY through these PRs — never by hand-editing
+# tags (that would silently drop the pin).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Don't PR a release until it has been out a week — a compromised action
+    # release is usually yanked within days (zizmor: dependabot-cooldown).
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"] # one weekly PR, not one per action

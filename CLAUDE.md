@@ -38,11 +38,14 @@ The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architect
 
 ## CI model
 
-Three path-filtered workflows in `.github/workflows/`:
+Five path-filtered workflows in `.github/workflows/`:
 
 - **terraform.yml** — fmt/validate/tflint + plan-as-PR-comment on PRs; auto-apply on master push. State lives in HCP Terraform (state-only backend, execution mode "Local").
 - **ansible.yml** — lint + syntax check on PRs; on master push the runner joins the tailnet as an ephemeral `tag:ci` node and runs `site.yml` over Tailscale SSH (the server has zero public inbound ports).
 - **packer.yml** — fmt/validate on PRs; image build only via manual dispatch.
+- **zizmor.yml** / **codeql.yml** — security analysis of the workflows themselves (SARIF → Security tab); zizmor also runs as a pre-commit hook. Baseline: clean at `--persona=pedantic` — keep it that way when touching workflows.
+
+Supply-chain rules (see `docs/architecture.md` D7): every `uses:` is pinned to a full commit SHA with the version as a trailing comment — **update actions only via the weekly grouped Dependabot PR, never by hand-editing a tag back in**; all checkouts set `persist-credentials: false`; `permissions:` are job-scoped with per-line comments.
 
 Only three GitHub secrets exist (`TF_API_TOKEN`, `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`); every other credential is fetched from Infisical at run time. Until the bootstrap checklist in the README is completed, workflow runs fail at the Infisical secret-fetch step — that is expected.
 

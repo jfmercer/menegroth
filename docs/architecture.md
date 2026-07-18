@@ -208,6 +208,29 @@ add a second state-bootstrap chicken-and-egg for a process that runs once.
 no scriptable creation path, so they remain seed steps; and the CLIs take secret
 values on argv (brief process-list exposure on the operator's machine).
 
+### D7 — Pipeline security scanning: zizmor + CodeQL, SHA-pinned supply chain
+
+The workflows carry the repo's highest-value credentials, so they get their own
+continuous analysis: **zizmor** (`zizmor.yml` + a pre-commit hook) statically
+audits the workflow files (template injection, credential persistence, unpinned
+actions, ...), and **CodeQL** (`codeql.yml`, `actions` query pack — the repo's
+only CodeQL-supported language) adds semantic taint analysis, both uploading
+SARIF to the Security tab (free: public repo). Supply-chain hardening landed
+with them: every `uses:` is pinned to a **full commit SHA** (version as a
+trailing comment) with grouped weekly Dependabot PRs keeping pins current —
+never hand-edit a pin back to a tag — plus `persist-credentials: false` on all
+checkouts and job-scoped `permissions:`. A full pipeline audit (2026-07-18)
+recorded the findings, accepted risks (e.g. the Infisical whole-job-env
+export), and deferred recommendations (saved-plan handoff, deployment
+environments, `workflow_dispatch` re-run entry points); the report is kept
+outside this public repo.
+
+*Alternative considered:* actionlint alone — it lints workflow syntax/shell but
+is not a security analyzer (no injection/secret-flow audits); zizmor + the
+CodeQL actions pack cover that ground and feed the Security tab's stateful
+triage. Manual review only was rejected: the tj-actions incident class is
+exactly what mutable-tag pins + unreviewed workflow edits invite.
+
 ## Provisioning flow
 
 1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:

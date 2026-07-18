@@ -8,9 +8,7 @@ on:
     branches: [master]
     paths: ["terraform/**", ".github/workflows/terraform.yml"]
 
-permissions:
-  contents: read
-  pull-requests: write # plan output comment
+permissions: {} # granted per-job below
 
 concurrency:
   group: terraform # one plan/apply at a time — state lock friendliness
@@ -28,15 +26,21 @@ defaults:
 
 jobs:
   terraform:
+    name: Plan / apply
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo
+      pull-requests: write # plan-as-PR-comment step
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # Only two credentials live in GitHub secrets: the HCP Terraform token
       # and the Infisical "ci" machine identity. Everything else (Hetzner
       # token, ...) is pulled from Infisical here.
       - name: Fetch secrets from Infisical
-        uses: Infisical/secrets-action@v1.0.16
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
         with:
           method: universal
           client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
@@ -52,7 +56,7 @@ jobs:
       - name: Map admin SSH key to a Terraform variable
         run: echo "TF_VAR_admin_ssh_public_key=$ADMIN_SSH_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
@@ -65,7 +69,7 @@ jobs:
       - name: terraform validate
         run: terraform validate -no-color
 
-      - uses: terraform-linters/setup-tflint@v6
+      - uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
       - name: tflint
         run: tflint --format compact
 
@@ -77,12 +81,13 @@ jobs:
 
       - name: Comment plan on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
         with:
           script: |
-            const outcome = "${{ steps.plan.outcome }}";
+            const outcome = process.env.PLAN_OUTCOME;
             const plan = process.env.PLAN_STDOUT.length > 60000
               ? process.env.PLAN_STDOUT.slice(0, 60000) + "\n… (truncated)"
               : process.env.PLAN_STDOUT;

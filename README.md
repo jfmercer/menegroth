@@ -14,6 +14,7 @@ secrets wiring, and the agent runtime — is defined in this repository.
 | Secrets | [Infisical Cloud](https://infisical.com/) | Source of truth for all credentials |
 | Agent runtime | [NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) | Agents in OpenShell sandboxes, routed inference |
 | CI/CD | GitHub Actions | Terraform plan/apply and Ansible runs; runners join the tailnet |
+| Pipeline security | [zizmor](https://zizmor.sh) + [CodeQL](https://codeql.github.com) | Workflow static analysis; SHA-pinned actions + Dependabot |
 
 ## Architecture
 
