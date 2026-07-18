@@ -47,6 +47,11 @@ jobs:
           secret-path: /ci
           export-type: env
 
+      # The Infisical action exports secrets under their own UPPER_SNAKE names;
+      # map the admin public key to the (case-sensitive) Terraform variable.
+      - name: Map admin SSH key to a Terraform variable
+        run: echo "TF_VAR_admin_ssh_public_key=$ADMIN_SSH_PUBLIC_KEY" >> "$GITHUB_ENV"
+
       - uses: hashicorp/setup-terraform@v4
         with:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}

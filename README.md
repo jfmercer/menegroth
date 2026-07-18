@@ -77,74 +77,93 @@ terraform/            Hetzner infrastructure (server, firewall, volume, SSH key)
 packer/               FDE image pipeline (LUKS2 root + tailnet-unlock initramfs)
 ansible/              Provisioning: inventory, site.yml, roles/
 macos/                Mac unlock agent (launchd + 1Password + ntfy)
+scripts/bootstrap/    One-time bootstrap automation + preflight validator
 .github/workflows/    terraform.yml, ansible.yml, packer.yml
 docs/                 architecture.md, verification.md, runbooks/
 ```
 
 ## One-time bootstrap
 
-These steps happen once, by hand, before CI can take over. Everything after
-them is driven by pull requests.
+The bootstrap is scripted (`scripts/bootstrap/`). It has two parts: create a
+small set of **seed credentials** by hand — the accounts/tokens that
+*authenticate the automation*, so they can't be automated away — then run the
+script, which generates and stores everything else (root/data LUKS keys, the
+admin SSH key, the Tailscale ACL and join keys, the 1Password vault) into
+Infisical, 1Password, and GitHub.
 
-1. **HCP Terraform** — create an organization and a workspace named
-   `menegroth`. Set the workspace **execution mode to "Local"** (we use
-   it only for state storage and locking; runs happen in GitHub Actions).
-   Create a user/team API token.
-2. **Infisical Cloud** (EU region — the workflows target `eu.infisical.com`) —
-   create a project (e.g. `menegroth`) with a `prod` environment, then two
-   [machine identities](https://infisical.com/docs/documentation/platform/identities/universal-auth).
-   Identities are org-level objects: create each, give it Universal Auth (which
-   yields a Client ID + Client Secret), then add it to the project with a role
-   scoped to the paths below.
-   - `ci` — read access to `/ci/*` **and `/unlock/*`** (holds `HCLOUD_TOKEN`,
-     `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `ANSIBLE_BECOME_PASS` if used; the
-     Packer image build also fetches `/unlock/*` as this identity — see step 6)
-   - `server` — read access to `/server/*` only (holds `DATA_VOLUME_LUKS_KEY`,
-     LLM API keys, `NTFY_TOPIC_URL`). It must **never** be granted `/unlock/*` —
-     that is what stops the server from unlocking its own root.
+**Prerequisites:** install and sign in to the CLIs the script drives —
+`op` (1Password), `gh` (GitHub), `infisical`, plus `jq`, `curl`, `openssl`, and
+optionally `hcloud` (preflight): `eval $(op signin)`, `gh auth login`,
+`infisical login`.
 
-   The `ci` Client ID/Secret go into GitHub repo secrets (step 4); the `server`
-   Client ID/Secret go into Infisical at `/ci/SERVER_IDENTITY_CLIENT_ID` and
-   `/ci/SERVER_IDENTITY_CLIENT_SECRET`, where the Ansible `infisical` role reads
-   them and delivers them onto the host.
-3. **Tailscale** — in the admin console (**Access controls** → the tailnet
-   policy file editor):
-   1. Paste the ACL policy from
-      [docs/architecture.md](docs/architecture.md#tailscale-acls) — do this
-      **first**, since you cannot mint a tagged key or OAuth client for a tag
-      that has no `tagOwners` entry. Include `tag:boot-unlock` now (used in
-      step 6) so the policy is edited only once.
-   2. **OAuth client** (Settings → OAuth clients): create one with the
-      `auth_keys` write scope, tagged `tag:ci`. Store its client ID/secret in
-      Infisical at `/ci/TS_OAUTH_CLIENT_ID` and `/ci/TS_OAUTH_SECRET`. CI mints
-      an ephemeral `tag:ci` key from this on every run.
-   3. **Server auth key** (Settings → Keys → Generate auth key): **reusable**,
-      **pre-authorized**, **NOT ephemeral** (the server is a persistent node),
-      tagged `tag:server`. Store it in Infisical at `/ci/TS_SERVER_AUTHKEY` —
-      the Ansible `tailscale` role reads it for the server's first join. After
-      the server is up, disable key expiry on its node (Machines → server) so a
-      set-and-forget box never drops off the tailnet.
+### 1. Seed credentials (create by hand)
 
-   The `tag:boot-unlock` **key** itself (reusable, *ephemeral*, pre-authorized)
-   is created in step 6 and stored under `/unlock/`, not here.
-4. **GitHub repo secrets** — set exactly three:
-   `TF_API_TOKEN` (HCP Terraform), `INFISICAL_CLIENT_ID`,
-   `INFISICAL_CLIENT_SECRET` (the `ci` machine identity).
-5. Generate an SSH keypair for Ansible bootstrap
-   (`ssh-keygen -t ed25519 -C ai-server-admin`), store the private key in
-   Infisical under `/ci/SSH_PRIVATE_KEY`, and put the public key in
-   `terraform/variables.tf` (`admin_ssh_public_key`).
-6. **FDE unlock prep** — create the `/unlock` Infisical path (readable by CI
-   and you, **not** by the `server` identity): `ROOT_LUKS_KEY`
-   (`openssl rand -base64 48`) and `TS_BOOT_AUTHKEY` (reusable + ephemeral +
-   pre-authorized, restricted to `tag:boot-unlock`). Add the `tag:boot-unlock`
-   ACLs (see `packer/README.md`). On your Mac: create the 1Password
-   `AI-Server-Unlock` vault + scoped service account (`macos/README.md`),
-   run `macos/install.sh`, and put the printed public key into
-   `packer/fde-image.pkr.hcl`.
-7. **Build the FDE image before the first Terraform apply**: run the
-   "Packer FDE image" workflow (workflow_dispatch) and verify it per
-   `packer/README.md` — Terraform selects the newest `fde=true` snapshot.
+| Service | Create | Becomes |
+|---|---|---|
+| **HCP Terraform** | org + workspace `menegroth`, execution mode **Local**; a user/team API token | `TF_API_TOKEN` (GitHub) |
+| **Infisical** (EU, `eu.infisical.com`) | project `menegroth`/`prod` + two universal-auth machine identities (below) | GitHub secrets + `/ci` |
+| **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
+| **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
+| **Anthropic** | an API key | `ANTHROPIC_API_KEY` (→ `/server`) |
+| **1Password** | signed in with rights to create a vault + service account | the script creates the vault |
+
+The two Infisical identities are org-level objects (create each → give it
+Universal Auth → add to the project with a path-scoped role):
+
+- **`ci`** — read `/ci/*` **and `/unlock/*`** (the Packer build reads `/unlock`
+  as this identity). Its Client ID/Secret become the GitHub secrets
+  `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`.
+- **`server`** — read `/server/*` **only**; never `/unlock/*` (that is what
+  stops the server from unlocking its own root). Its Client ID/Secret go into
+  `/ci/SERVER_IDENTITY_CLIENT_ID` / `_SECRET` (the script stores them), where
+  the Ansible `infisical` role later delivers them onto the host.
+
+You do **not** create the ACL, the auth keys, the LUKS keys, the admin SSH key,
+or the 1Password items by hand — the script does all of that.
+
+### 2. Configure and run
+
+```bash
+cd scripts/bootstrap
+cp bootstrap.env.example bootstrap.env
+$EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID (+ any overrides)
+
+# Provide the seed secrets in your shell (see the SEEDS block in the .env):
+export HCLOUD_TOKEN=... TS_API_TOKEN=... TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...
+export TF_API_TOKEN=... INFISICAL_CLIENT_ID=... INFISICAL_CLIENT_SECRET=...
+export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=... ANTHROPIC_API_KEY=...
+
+./bootstrap.sh --dry-run              # preview — touches nothing
+./bootstrap.sh                        # create/store everything (idempotent; safe to re-run)
+```
+
+The four phases (1Password → Tailscale → Infisical → GitHub) push the tailnet
+ACL, mint the `tag:server` and `tag:boot-unlock` keys, generate the LUKS and
+admin SSH keys, and store every secret at its exact path/name. Then load the
+Mac unlock agent: `cd ../../macos && ./install.sh` (the vault and token are
+already in place from phase 1).
+
+### 3. Preflight, then build
+
+```bash
+./preflight.sh                        # verifies every secret/name/ACL is present
+```
+
+Fix any `FAIL` lines, then dispatch the **Packer FDE image** workflow
+(workflow_dispatch). It builds the LUKS2-root snapshot; Terraform selects the
+newest `fde=true` one on the next apply. A `WARN` that no `fde=true` snapshot
+exists yet is expected until this build runs.
+
+> **The two public keys live in Infisical, not source.** `admin_ssh_public_key`
+> and `mac_unlock_ssh_pubkey` are injected in CI as `TF_VAR_`/`PKR_VAR_` from
+> `/ci/ADMIN_SSH_PUBLIC_KEY` and `/unlock/MAC_UNLOCK_SSH_PUBKEY`. For a **local**
+> `terraform plan`, export `TF_VAR_admin_ssh_public_key` yourself (`validate`
+> doesn't need it).
+
+> **argv note.** The script passes seed tokens to `infisical`/`gh`/`curl` via
+> their normal CLI arguments, so values are briefly visible in the process list
+> on the machine you run it from. Fine for a personal one-time bootstrap; on a
+> shared machine, rotate the seeds afterward.
 
 ## Local development
 

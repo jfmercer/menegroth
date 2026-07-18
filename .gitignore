@@ -28,6 +28,9 @@ ansible/collections/
 *.credential
 infisical.json
 
+# Bootstrap — local config (may reference seed locations); never the .example
+scripts/bootstrap/bootstrap.env
+
 # Editors / OS
 .DS_Store
 .idea/

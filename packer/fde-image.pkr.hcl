@@ -27,17 +27,14 @@ variable "boot_tailscale_authkey" {
 
 variable "mac_unlock_ssh_pubkey" {
   type = string
-  # Public half of the Mac unlock agent's SSH key (macos/README.md).
-  # REPLACE during bootstrap:
-  default = "ssh-ed25519 AAAA_REPLACE_ME mac-unlock-agent"
-
-  # A build with the placeholder would bake an image whose remote unlock can
-  # never work (console-only) — and that only surfaces at the first reboot.
-  # Fail the build here instead. CI's validate job passes a benign
-  # placeholder; the build job uses this file's (replaced) default.
+  # Public half of the Mac unlock agent's SSH key (macos/README.md). No default:
+  # provided in CI as PKR_VAR_mac_unlock_ssh_pubkey from Infisical
+  # /unlock/MAC_UNLOCK_SSH_PUBKEY. The validate job passes a placeholder -var;
+  # a real build with a malformed key fails here instead of baking an image
+  # whose remote unlock can never work.
   validation {
-    condition     = !can(regex("REPLACE_ME", var.mac_unlock_ssh_pubkey))
-    error_message = "The mac_unlock_ssh_pubkey variable still has the REPLACE_ME placeholder — run macos/install.sh and paste the printed public key here (README bootstrap step 6)."
+    condition     = can(regex("^ssh-", var.mac_unlock_ssh_pubkey))
+    error_message = "The mac_unlock_ssh_pubkey must be an OpenSSH public key (starts with 'ssh-'); in CI it comes from Infisical /unlock/MAC_UNLOCK_SSH_PUBKEY."
   }
 }
 

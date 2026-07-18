@@ -27,11 +27,14 @@ cd ansible && ansible-galaxy collection install -r requirements.yml && \
 
 # Everything at once (gitleaks, terraform fmt/validate/tflint, ansible-lint, ...)
 pre-commit run -a
+
+# Bootstrap scripts (one-time; shellcheck with -x to follow sourced lib.sh)
+cd scripts/bootstrap && shellcheck -x ./*.sh && ./bootstrap.sh --dry-run
 ```
 
 Never run `terraform apply` or `packer build` locally. Apply happens on merge to master; Packer builds are `workflow_dispatch` only (each build boots a paid temporary server).
 
-Placeholder values (`REPLACE_ME` in `terraform/variables.tf` and `packer/fde-image.pkr.hcl`, `REPLACE_WITH_PROJECT_ID` in `ansible/group_vars/all.yml`) are replaced during the one-time bootstrap (README) and guarded by `validation` blocks — keep those guards intact.
+The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architecture.md` D6): idempotent phase scripts (`10-onepassword` → `20-tailscale` → `30-infisical` → `40-github`) driven by `bootstrap.sh`, plus `preflight.sh` which validates the whole tenant before the first Packer build. The two public keys (`admin_ssh_public_key`, `mac_unlock_ssh_pubkey`) live in Infisical, **not** source — CI injects them as `TF_VAR_`/`PKR_VAR_`, so a local `terraform plan` needs `TF_VAR_admin_ssh_public_key` exported (`validate` does not). The only remaining source placeholder is `REPLACE_WITH_PROJECT_ID` in `ansible/group_vars/all.yml`; the `validation` blocks on the two key variables (format `^ssh-`) must stay intact.
 
 ## CI model
 

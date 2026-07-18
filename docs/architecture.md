@@ -171,10 +171,11 @@ Tailnet policy needed (configured in the Tailscale admin console):
 }
 ```
 
-The `tag:boot-unlock` **auth key** (reusable, ephemeral, pre-authorized) is
-created during bootstrap step 6 and stored at `/unlock/TS_BOOT_AUTHKEY`; the
-`tagOwners`/`acls` entries above are added earlier (step 3) so the policy is
-edited once.
+This policy is applied by `scripts/bootstrap/20-tailscale.sh` (POST to
+`/api/v2/tailnet/-/acl`), which also mints the `tag:server` and
+`tag:boot-unlock` auth keys and stores them at `/ci/TS_SERVER_AUTHKEY` and
+`/unlock/TS_BOOT_AUTHKEY`. The `tag:ci` OAuth client is the one Tailscale object
+with no creation API, so it stays a hand-made seed credential.
 
 ### D5 — Agent runtime: NVIDIA NemoClaw on OpenShell
 
@@ -186,6 +187,26 @@ them; keys are injected from Infisical into the NemoClaw host config.
 NemoClaw is an **alpha** project — its installer version is pinned
 (`NEMOCLAW_INSTALL_TAG` in the `nemoclaw` role defaults) and upgrades are
 deliberate, reviewed bumps, not floating `lkg`.
+
+### D6 — Bootstrap automation via scripted CLIs
+
+The one-time bootstrap is automated by `scripts/bootstrap/` — modular,
+idempotent shell scripts driving `op`, `infisical`, `gh`, `openssl`, and the
+Tailscale REST API (`curl`), plus `hcloud` in the preflight validator. From a
+small set of hand-made **seed credentials** (the accounts/tokens that
+authenticate the automation — Hetzner token, Tailscale API token + `tag:ci`
+OAuth client, the two Infisical identities, HCP token, 1Password sign-in), the
+scripts generate and store everything else, and `preflight.sh` verifies the
+whole tenant before the first Packer build. To remove source-file edits from
+the flow, the two public keys now live in Infisical (`/ci/ADMIN_SSH_PUBLIC_KEY`,
+`/unlock/MAC_UNLOCK_SSH_PUBKEY`) and CI injects them as `TF_VAR_`/`PKR_VAR_`.
+
+*Alternative considered:* declarative Terraform providers (Infisical, Tailscale,
+TFE) — rejected because it would put root/LUKS material in Terraform state and
+add a second state-bootstrap chicken-and-egg for a process that runs once.
+*Known limits:* Infisical identity creation and the Tailscale OAuth client have
+no scriptable creation path, so they remain seed steps; and the CLIs take secret
+values on argv (brief process-list exposure on the operator's machine).
 
 ## Provisioning flow
 

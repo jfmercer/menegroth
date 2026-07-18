@@ -31,16 +31,14 @@ variable "admin_user" {
 }
 
 variable "admin_ssh_public_key" {
-  description = "Public half of the Ansible/admin bootstrap SSH key (the private half lives in Infisical at /ci/SSH_PRIVATE_KEY)"
+  description = "Public half of the Ansible/admin bootstrap SSH key (private half in Infisical /ci/SSH_PRIVATE_KEY). No default: injected in CI as TF_VAR_admin_ssh_public_key from Infisical /ci/ADMIN_SSH_PUBLIC_KEY — set it in your environment for local plans."
   type        = string
-  # REPLACE during bootstrap (step 5 in README):
-  default = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJWzoCUkE6MgvKU4iDnhjpkJ8NmCHBZz4AAf6FbanYrN ai-server-admin"
+  # No default: Infisical is the single source of truth (scripts/bootstrap).
 
-  # Fail the plan fast instead of letting Hetzner reject the key (or worse,
-  # accept a wrong one) at apply time.
+  # Fail fast on a malformed key instead of letting Hetzner reject it at apply.
   validation {
-    condition     = !strcontains(var.admin_ssh_public_key, "REPLACE_ME")
-    error_message = "The admin_ssh_public_key variable still has the REPLACE_ME placeholder — generate the bootstrap keypair and paste the public key here (README bootstrap step 5)."
+    condition     = can(regex("^ssh-", var.admin_ssh_public_key))
+    error_message = "The admin_ssh_public_key must be an OpenSSH public key (starts with 'ssh-'); in CI it comes from Infisical /ci/ADMIN_SSH_PUBLIC_KEY."
   }
 }
 

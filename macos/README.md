@@ -40,14 +40,15 @@ a boot node is actually online — the routine 30 s poll makes no API calls
   device to reach `tag:boot-unlock:22`.
 - 1Password CLI: `brew install 1password-cli`.
 - Xcode Command Line Tools (`/usr/bin/python3` parses `tailscale status`).
-- One-time 1Password setup:
-  1. Create the `AI-Server-Unlock` vault.
-  2. Add the `luks-passphrase` and `ntfy` items in the 1Password app.
-  3. Generate the SSH key **inside** 1Password:
-     `op item create --category 'SSH Key' --title unlock-ssh-key --vault AI-Server-Unlock --ssh-generate-key ed25519`
-  4. 1password.com → Developer → Service Accounts → create one with
-     **read-only** access to `AI-Server-Unlock` only; keep the token handy
-     for the installer.
+- One-time 1Password setup is done by the bootstrap script
+  (`scripts/bootstrap/10-onepassword.sh`): it creates the `AI-Server-Unlock`
+  vault, the `luks-passphrase` / `ntfy` / `unlock-ssh-key` items, and a
+  read-only service account, and writes the service-account token to
+  `~/.config/ai-server-unlock/op-token`. Run that before `./install.sh`.
+  To do it by hand instead: create the vault + `luks-passphrase`/`ntfy` items,
+  generate the key with
+  `op item create --category 'SSH Key' --title unlock-ssh-key --vault AI-Server-Unlock --ssh-generate-key ed25519`,
+  and create a read-only service account scoped to that vault only.
 
 ## Install
 
