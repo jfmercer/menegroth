@@ -50,7 +50,7 @@ variable "tailscale_version" {
 
 variable "boot_hostname" {
   type    = string
-  default = "ai-server-boot" # the initramfs tailnet node name
+  default = "menegroth-server-boot" # the initramfs tailnet node name
 }
 
 source "hcloud" "fde" {
@@ -65,7 +65,7 @@ source "hcloud" "fde" {
   snapshot_labels = {
     fde  = "true"
     os   = "ubuntu-24.04"
-    role = "ai-server-base"
+    role = "menegroth-server-base"
   }
 }
 

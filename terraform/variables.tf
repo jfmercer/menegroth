@@ -1,7 +1,7 @@
 variable "server_name" {
-  description = "Hostname of the AI workflow server"
+  description = "Hostname of the Menegroth server"
   type        = string
-  default     = "ai-server"
+  default     = "menegroth-server"
 }
 
 variable "server_type" {
@@ -21,7 +21,7 @@ variable "location" {
 variable "fde_image_selector" {
   description = "Label selector matching the Packer-built FDE snapshot"
   type        = string
-  default     = "fde=true,role=ai-server-base"
+  default     = "fde=true,role=menegroth-server-base"
 }
 
 variable "admin_user" {

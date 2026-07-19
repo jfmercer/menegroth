@@ -62,7 +62,7 @@ fi
 # credential) — never a personal op session. Passing here proves the exact
 # token the agent will use can read all three items, and nothing else.
 step "1Password — vault items readable via the menegroth-unlock service account"
-token_file="$HOME/.config/ai-server-unlock/op-token"
+token_file="$HOME/.config/menegroth-server-unlock/op-token"
 op_read_check() { # op_read_check <op-reference>
   OP_SERVICE_ACCOUNT_TOKEN="$(cat "$token_file")" op read "$1" >/dev/null 2>&1
 }

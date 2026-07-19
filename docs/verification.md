@@ -19,7 +19,7 @@ after any significant change). They mirror the build phases.
 ## Network posture
 
 - [ ] From outside the tailnet: `nmap -Pn <public-ip>` shows **no open ports**.
-- [ ] From a tailnet device: `ssh admin@ai-server` works (Tailscale SSH).
+- [ ] From a tailnet device: `ssh admin@menegroth-server` works (Tailscale SSH).
 - [ ] The Ansible provision job (runner joins tailnet) succeeds on merge.
 
 ## FDE root & automated unlock

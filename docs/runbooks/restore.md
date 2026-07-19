@@ -4,7 +4,7 @@
 
 The server is disposable; the data volume and secrets are not on it.
 
-1. `terraform destroy -target=hcloud_server.ai` (volume has
+1. `terraform destroy -target=hcloud_server.menegroth` (volume has
    `delete_protection` and its attachment simply follows the new server).
 2. `terraform apply` — recreates the server from the newest FDE snapshot and
    re-attaches the volume. The first boot waits at the unlock prompt; the

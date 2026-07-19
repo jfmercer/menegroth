@@ -30,19 +30,19 @@ systemctl reboot
 Rotate the **boot node auth key** (initramfs tailnet identity) by generating
 a new ephemeral pre-authorized key, updating `/unlock/TS_BOOT_AUTHKEY`,
 rebuilding the image (Packer workflow), rolling the server
-(`terraform apply -replace=hcloud_server.ai`), and revoking the old key in
+(`terraform apply -replace=hcloud_server.menegroth`), and revoking the old key in
 the Tailscale admin console.
 
 **After any image roll** (this rotation or any other rebuild): the new image
 carries freshly generated dropbear host keys. The Mac unlock agent pins host
-keys by boot-node IP in `~/.local/state/ai-server-unlock/known_hosts`
+keys by boot-node IP in `~/.local/state/menegroth-server-unlock/known_hosts`
 (`StrictHostKeyChecking=accept-new`), so if the new boot node comes up on a
 tailnet IP an old image once used, the unlock SSH hard-fails on the key
 mismatch and reboots stop being hands-free. Clear the pin cache on the Mac
 after every image roll:
 
 ```bash
-rm -f ~/.local/state/ai-server-unlock/known_hosts
+rm -f ~/.local/state/menegroth-server-unlock/known_hosts
 ```
 
 ## Data-volume LUKS key

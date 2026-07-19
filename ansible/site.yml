@@ -1,6 +1,6 @@
 ---
-- name: Provision the secure AI workflow server
-  hosts: ai_server
+- name: Provision the Menegroth server
+  hosts: menegroth_server
   become: true
   roles:
     - harden

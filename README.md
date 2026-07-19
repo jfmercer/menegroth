@@ -1,4 +1,4 @@
-# Secure AI Workflow Server
+# Menegroth Server
 
 Infrastructure-as-code for a single personal server that runs sandboxed AI agent
 workflows. Everything about the server — infrastructure, provisioning,

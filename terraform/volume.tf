@@ -10,7 +10,7 @@ resource "hcloud_volume" "data" {
 
 resource "hcloud_volume_attachment" "data" {
   volume_id = hcloud_volume.data.id
-  server_id = hcloud_server.ai.id
+  server_id = hcloud_server.menegroth.id
   automount = false
 }
 

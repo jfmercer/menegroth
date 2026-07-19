@@ -6,7 +6,7 @@
 set -euo pipefail
 
 : "${LUKS_PASSPHRASE:?}" "${TS_BOOT_AUTHKEY:?}" "${MAC_UNLOCK_PUBKEY:?}"
-: "${UBUNTU_SERIES:=noble}" "${TAILSCALE_VERSION:?}" "${BOOT_HOSTNAME:=ai-server-boot}"
+: "${UBUNTU_SERIES:=noble}" "${TAILSCALE_VERSION:?}" "${BOOT_HOSTNAME:=menegroth-server-boot}"
 
 DISK=/dev/sda
 BOOT_PART=${DISK}2

@@ -13,12 +13,12 @@ threat model.
    LUKS2 root), debootstraps Ubuntu, installs kernel + grub + cloud-init +
    `dropbear-initramfs`, and embeds the static tailscale binaries plus the
    boot node credentials via the hooks in `files/initramfs/`.
-3. Packer snapshots the result with labels `fde=true, role=ai-server-base`;
+3. Packer snapshots the result with labels `fde=true, role=menegroth-server-base`;
    Terraform selects the newest matching snapshot (Phase 9).
 
 At boot, servers built from this image: get DHCP networking in initramfs
 (`ip=dhcp` on the kernel cmdline) → join the tailnet as an **ephemeral** node
-(`ai-server-boot`, `tag:boot-unlock`) → dropbear accepts the Mac agent's key
+(`menegroth-server-boot`, `tag:boot-unlock`) → dropbear accepts the Mac agent's key
 (forced command `cryptroot-unlock`, no forwarding) → root unlocks → the boot
 node logs itself out before pivoting to the real system.
 
@@ -54,7 +54,7 @@ cd packer && packer init . && packer build .
 ## Verifying a new image (throwaway server, before Phase 9 rollout)
 
 1. Create a server from the snapshot in the Hetzner console.
-2. Watch the tailnet: an `ai-server-boot` node appears within ~1 minute.
+2. Watch the tailnet: an `menegroth-server-boot` node appears within ~1 minute.
 3. `ssh root@<boot-node>` from an authorized device → forced
    `cryptroot-unlock` prompts → server boots; the boot node disappears.
 4. Reboot and unlock via the Hetzner web console instead (type passphrase).

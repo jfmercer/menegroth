@@ -80,7 +80,7 @@ fi
 
 # ---- Unlock service-account token (the Mac agent's credential) --------------
 step "Unlock token (menegroth-unlock service account, read-only)"
-token_file="$HOME/.config/ai-server-unlock/op-token"
+token_file="$HOME/.config/menegroth-server-unlock/op-token"
 if [[ -f "$token_file" ]]; then
   ok "token file present ($token_file)"
 else

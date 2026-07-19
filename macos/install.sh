@@ -1,6 +1,6 @@
 #!/bin/bash
-# Install the AI server unlock agent on this Mac. Idempotent; re-run after
-# editing ai-server-unlock.sh to update the installed copy.
+# Install the Menegroth server unlock agent on this Mac. Idempotent; re-run after
+# editing menegroth-server-unlock.sh to update the installed copy.
 #
 # All secrets live in 1Password (dedicated vault, service-account read-only
 # access). The only credential this installer writes to disk is the
@@ -9,9 +9,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-BIN="${HOME}/.local/bin/ai-server-unlock"
-PLIST_DEST="${HOME}/Library/LaunchAgents/com.ai-server.unlock.plist"
-TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
+BIN="${HOME}/.local/bin/menegroth-server-unlock"
+PLIST_DEST="${HOME}/Library/LaunchAgents/com.menegroth-server.unlock.plist"
+TOKEN_FILE="${HOME}/.config/menegroth-server-unlock/op-token"
 OP_VAULT="Menegroth"
 
 OP="$(command -v op || true)"
@@ -23,9 +23,9 @@ if [[ -z "$OP" ]]; then
 fi
 
 echo "==> Installing unlock script to $BIN"
-mkdir -p "${HOME}/.local/bin" "${HOME}/.local/state/ai-server-unlock" \
-  "${HOME}/.config/ai-server-unlock"
-install -m 0700 ai-server-unlock.sh "$BIN"
+mkdir -p "${HOME}/.local/bin" "${HOME}/.local/state/menegroth-server-unlock" \
+  "${HOME}/.config/menegroth-server-unlock"
+install -m 0700 menegroth-server-unlock.sh "$BIN"
 
 if [[ ! -f "$TOKEN_FILE" ]]; then
   echo "==> Storing the menegroth-unlock service-account token (0600)"
@@ -81,9 +81,9 @@ done
 [[ -z "${SELF_CHECK_FAILED:-}" ]] || exit 1
 
 echo "==> Installing launchd agent"
-sed "s|__HOME__|${HOME}|g" com.ai-server.unlock.plist > "$PLIST_DEST"
+sed "s|__HOME__|${HOME}|g" com.menegroth-server.unlock.plist > "$PLIST_DEST"
 launchctl bootout "gui/$(id -u)" "$PLIST_DEST" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST"
 
 echo "==> Done. The agent polls every 30 s while this Mac is awake."
-echo "    Logs: ~/.local/state/ai-server-unlock/agent.log"
+echo "    Logs: ~/.local/state/menegroth-server-unlock/agent.log"

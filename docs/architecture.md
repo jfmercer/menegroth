@@ -45,7 +45,7 @@ volumes, with the reboot problem solved by automated remote unlock.)*
 **Root volume:** the server boots from a custom snapshot (built by the
 `packer/` pipeline) with a LUKS2-encrypted root and unencrypted `/boot`. At
 boot, the initramfs joins the tailnet as an **ephemeral** node
-(`ai-server-boot`, `tag:boot-unlock`) and runs dropbear (public-key only,
+(`menegroth-server-boot`, `tag:boot-unlock`) and runs dropbear (public-key only,
 forced command `cryptroot-unlock`, no forwarding). The Mac unlock agent
 (`macos/`) detects the boot node and pipes the passphrase from 1Password
 over Tailscale SSH transport. The boot node logs itself out before

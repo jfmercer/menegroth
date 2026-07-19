@@ -1,7 +1,7 @@
 #!/bin/bash
-# Mac unlock agent for the AI server's FDE root.
+# Mac unlock agent for the Menegroth server's FDE root.
 #
-# Runs every 30 s via launchd (com.ai-server.unlock.plist). When the server
+# Runs every 30 s via launchd (com.menegroth-server.unlock.plist). When the server
 # reboots, its initramfs joins the tailnet as an ephemeral node tagged
 # tag:boot-unlock; this script detects that node, reads the LUKS passphrase
 # from 1Password (service account scoped read-only to one dedicated vault),
@@ -11,13 +11,13 @@
 # poll makes zero API calls.
 set -euo pipefail
 
-CONFIG="${HOME}/.config/ai-server-unlock/config"
-STATE_DIR="${HOME}/.local/state/ai-server-unlock"
+CONFIG="${HOME}/.config/menegroth-server-unlock/config"
+STATE_DIR="${HOME}/.local/state/menegroth-server-unlock"
 mkdir -p "$STATE_DIR"
 
 # Defaults, overridable in $CONFIG.
 BOOT_TAG="tag:boot-unlock"
-OP_TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
+OP_TOKEN_FILE="${HOME}/.config/menegroth-server-unlock/op-token"
 OP_VAULT="Menegroth"
 OP_LUKS_REF="op://${OP_VAULT}/luks-passphrase/password"
 OP_SSH_KEY_REF="op://${OP_VAULT}/unlock-ssh-key/private key?ssh-format=openssh"
@@ -38,7 +38,7 @@ find_bin() { # $1=name, remaining args = fallback paths (launchd has a bare PATH
   for p in "$@"; do
     [[ -x "$p" ]] && { echo "$p"; return; }
   done
-  echo "ai-server-unlock: $name not found" >&2
+  echo "menegroth-server-unlock: $name not found" >&2
   return 1
 }
 
@@ -81,7 +81,7 @@ OP="$(find_bin op /opt/homebrew/bin/op /usr/local/bin/op)"
 # Without the token we can neither unlock nor send an ntfy alert (the ntfy
 # URL is itself in the vault) — log loudly so agent.log explains the silence.
 if [[ ! -r "$OP_TOKEN_FILE" ]]; then
-  echo "ai-server-unlock: server is waiting at the boot prompt but the token file ($OP_TOKEN_FILE) is missing/unreadable — re-run macos/install.sh" >&2
+  echo "menegroth-server-unlock: server is waiting at the boot prompt but the token file ($OP_TOKEN_FILE) is missing/unreadable — re-run macos/install.sh" >&2
   exit 1
 fi
 
@@ -95,7 +95,7 @@ fi
 first_seen="$(cat "$STATE_DIR/first_seen")"
 if (( $(date +%s) - first_seen > STUCK_ALERT_SECONDS )) && [[ ! -f "$STATE_DIR/stuck_alerted" ]]; then
   touch "$STATE_DIR/stuck_alerted"
-  notify urgent "AI server STUCK at boot" \
+  notify urgent "Menegroth server STUCK at boot" \
     "Boot node online for over $((STUCK_ALERT_SECONDS / 60)) min without a successful unlock. Console fallback: break-glass runbook §0."
 fi
 
@@ -110,7 +110,7 @@ echo "$now" > "$STATE_DIR/last_attempt"
 
 # ---- Unlock ----------------------------------------------------------------
 passphrase="$(op_read "$OP_LUKS_REF")" || {
-  notify high "AI server unlock FAILED" \
+  notify high "Menegroth server unlock FAILED" \
     "Boot node online but 1Password read failed ($OP_LUKS_REF) — token revoked/expired? See macos/README.md."
   exit 1
 }
@@ -121,7 +121,7 @@ keydir="$(mktemp -d "${TMPDIR:-/tmp}/ai-unlock.XXXXXX")"
 chmod 700 "$keydir"
 trap 'rm -rf "$keydir"' EXIT
 if ! op_read "$OP_SSH_KEY_REF" > "$keydir/id"; then
-  notify high "AI server unlock FAILED" "1Password read of the unlock SSH key failed."
+  notify high "Menegroth server unlock FAILED" "1Password read of the unlock SSH key failed."
   exit 1
 fi
 chmod 600 "$keydir/id"
@@ -135,8 +135,8 @@ if printf '%s\n' "$passphrase" | ssh \
     -o UserKnownHostsFile="$STATE_DIR/known_hosts" \
     "root@${boot_ip}" 2>>"$STATE_DIR/unlock.log"; then
   rm -f "$STATE_DIR/first_seen" "$STATE_DIR/stuck_alerted"
-  notify default "AI server unlocked" "Root volume unlocked automatically at $(date '+%H:%M:%S'); server is booting."
+  notify default "Menegroth server unlocked" "Root volume unlocked automatically at $(date '+%H:%M:%S'); server is booting."
 else
-  notify high "AI server unlock FAILED" "SSH unlock attempt to ${boot_ip} failed — see unlock.log. Console fallback: docs/runbooks/break-glass.md."
+  notify high "Menegroth server unlock FAILED" "SSH unlock attempt to ${boot_ip} failed — see unlock.log. Console fallback: docs/runbooks/break-glass.md."
   exit 1
 fi

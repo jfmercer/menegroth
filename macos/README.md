@@ -1,6 +1,6 @@
 # Mac unlock agent
 
-Automates unlocking the AI server's LUKS-encrypted root at boot. When the
+Automates unlocking the Menegroth server's LUKS-encrypted root at boot. When the
 server reboots, its initramfs appears on the tailnet as an ephemeral
 `tag:boot-unlock` node; a launchd job on this Mac (every 30 s while awake)
 detects it, reads the passphrase from **1Password**, and pipes it over SSH
@@ -23,7 +23,7 @@ The agent authenticates with a **1Password service account** that has
 **read-only access to this one vault and nothing else** — service accounts
 can never be granted your Private vault, so the blast radius of a stolen
 token is exactly these three revocable secrets. The token itself is the one
-project credential on disk (`~/.config/ai-server-unlock/op-token`, 0600,
+project credential on disk (`~/.config/menegroth-server-unlock/op-token`, 0600,
 FileVault at rest) — deliberately on disk so hands-free unlock survives Mac
 reboots without any manual step. Because service accounts work headlessly,
 unlocks stay fully automatic even when the 1Password app is locked or not
@@ -52,7 +52,7 @@ a boot node is actually online — the routine 30 s poll makes no API calls
   2. `scripts/bootstrap/10-onepassword.sh` (as `menegroth-bootstrap`) creates
      the `luks-passphrase` / `ntfy` / `unlock-ssh-key` items.
   3. `./install.sh` stores the **`menegroth-unlock`** token 0600 at
-     `~/.config/ai-server-unlock/op-token` (export it as
+     `~/.config/menegroth-server-unlock/op-token` (export it as
      `MENEGROTH_OP_UNLOCK_TOKEN` first, or paste it at the prompt).
 
 ## Install
@@ -72,17 +72,17 @@ survives Mac reboots, so there is nothing to re-run afterwards.
 
 - Cooldown of 120 s between attempts so a slow pivot isn't hammered.
 - First connection pins the boot node's dropbear host key (`accept-new` into
-  `~/.local/state/ai-server-unlock/known_hosts`); after an image rebuild,
+  `~/.local/state/menegroth-server-unlock/known_hosts`); after an image rebuild,
   prune that file — an *unexpected* host-key failure deserves suspicion.
 - If the Mac is asleep, the server just waits at the prompt; console
   fallback: `docs/runbooks/break-glass.md` §0.
-- State/logs: `~/.local/state/ai-server-unlock/` (`agent.log`, `unlock.log`).
+- State/logs: `~/.local/state/menegroth-server-unlock/` (`agent.log`, `unlock.log`).
 
 ## Rotation & revocation
 
 - **Service account token:** revoke `menegroth-unlock` at 1password.com,
   create a replacement (read-only, `Menegroth` vault only), then
-  `rm ~/.config/ai-server-unlock/op-token && ./install.sh`.
+  `rm ~/.config/menegroth-server-unlock/op-token && ./install.sh`.
 - **Passphrase / SSH key:** edit in the 1Password app (avoid putting secret
   values on `op` command lines — argv is visible to other processes), then
   follow `docs/runbooks/key-rotation.md`.
@@ -90,8 +90,8 @@ survives Mac reboots, so there is nothing to re-run afterwards.
 ## Uninstall
 
 ```bash
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.ai-server.unlock.plist
-rm ~/Library/LaunchAgents/com.ai-server.unlock.plist ~/.local/bin/ai-server-unlock
-rm ~/.config/ai-server-unlock/op-token
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.menegroth-server.unlock.plist
+rm ~/Library/LaunchAgents/com.menegroth-server.unlock.plist ~/.local/bin/menegroth-server-unlock
+rm ~/.config/menegroth-server-unlock/op-token
 # then revoke the service account at 1password.com
 ```

@@ -9,7 +9,7 @@ lock you out, use one of these paths — in order.
 If the server rebooted and nothing unlocked it (Mac offline, initramfs
 tailnet join failed):
 
-1. <https://console.hetzner.cloud> → `ai-server` → **Console** (>_ icon).
+1. <https://console.hetzner.cloud> → `menegroth-server` → **Console** (>_ icon).
 2. The screen shows the `cryptsetup` passphrase prompt for `root_crypt`.
 3. Type the root passphrase (recovery copy: Infisical `/unlock/ROOT_LUKS_KEY`).
 4. Boot continues normally; investigate why the agent didn't fire
@@ -17,7 +17,7 @@ tailnet join failed):
 
 ## 1. Hetzner web console (always works)
 
-1. Log in to <https://console.hetzner.cloud> → project → `ai-server`.
+1. Log in to <https://console.hetzner.cloud> → project → `menegroth-server`.
 2. Open the **Console** (>_ icon). This is out-of-band VGA access; it works
    regardless of network/firewall state.
 3. Console login needs a password, and all password logins are disabled.
@@ -47,7 +47,7 @@ If you need a real shell and the console is too painful:
 The server is fully reproducible. If it's compromised or unrecoverable:
 
 ```bash
-terraform destroy -target=hcloud_server.ai && terraform apply
+terraform destroy -target=hcloud_server.menegroth && terraform apply
 # then let the Ansible workflow re-provision (or run site.yml manually)
 ```
 
