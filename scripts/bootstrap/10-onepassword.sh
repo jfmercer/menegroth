@@ -2,7 +2,7 @@
 # Phase 10 — 1Password: ensure the Menegroth vault holds the unlock items.
 #
 # SCOPE: every op call here runs as the menegroth-bootstrap SERVICE ACCOUNT
-# ($OP_BOOTSTRAP_TOKEN seed; read+write items on the Menegroth vault ONLY) —
+# ($MENEGROTH_OP_BOOTSTRAP_TOKEN seed; read+write items on the Menegroth vault ONLY) —
 # never a personal 1Password session. 1Password enforces the vault scope
 # server-side, and service accounts can never be granted your Private vault.
 # The vault itself and the two service accounts are hand-made seed steps
@@ -80,12 +80,12 @@ fi
 
 # ---- Unlock service-account token (the Mac agent's credential) --------------
 step "Unlock token (menegroth-unlock service account, read-only)"
-token_file="$HOME/.config/ai-server-unlock/op-token"
-if [[ -f "$token_file" ]]; then
-  ok "token file present ($token_file)"
+if [[ -n "${MENEGROTH_OP_UNLOCK_TOKEN:-}" ]]; then
+  ok "\$MENEGROTH_OP_UNLOCK_TOKEN is set in this shell"
 else
-  info "not stored yet — macos/install.sh prompts for the menegroth-unlock"
-  info "token (README seed steps) and writes it 0600 to $token_file."
+  info "\$MENEGROTH_OP_UNLOCK_TOKEN not set here — the token is never stored on"
+  info "disk; export it before running macos/install.sh and preflight.sh, and"
+  info "re-run macos/install.sh after each Mac reboot (README seed steps)."
 fi
 
 ok "1Password phase complete"

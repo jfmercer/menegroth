@@ -3,14 +3,16 @@
 # editing ai-server-unlock.sh to update the installed copy.
 #
 # All secrets live in 1Password (dedicated vault, service-account read-only
-# access). The only credential this installer writes to disk is the service
-# account token (0600, FileVault-protected).
+# access). This installer writes NO credential to disk: the service-account
+# token is taken from $MENEGROTH_OP_UNLOCK_TOKEN and loaded into launchd's
+# in-memory environment (launchctl setenv). That environment is lost at Mac
+# reboot/logout — re-run this installer afterwards to re-provide the token.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 BIN="${HOME}/.local/bin/ai-server-unlock"
 PLIST_DEST="${HOME}/Library/LaunchAgents/com.ai-server.unlock.plist"
-TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
+LEGACY_TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
 OP_VAULT="Menegroth"
 
 OP="$(command -v op || true)"
@@ -26,20 +28,22 @@ mkdir -p "${HOME}/.local/bin" "${HOME}/.local/state/ai-server-unlock" \
   "${HOME}/.config/ai-server-unlock"
 install -m 0700 ai-server-unlock.sh "$BIN"
 
-if [[ ! -f "$TOKEN_FILE" ]]; then
-  echo "==> Storing the menegroth-unlock service-account token"
-  echo "    This is the READ-ONLY service account scoped to the '$OP_VAULT'"
-  echo "    vault only (README seed steps). Paste its token (it will not echo):"
-  read -rs OP_TOKEN
-  echo
-  umask 177
-  printf '%s\n' "$OP_TOKEN" > "$TOKEN_FILE"
-  umask 022
-  unset OP_TOKEN
+if [[ -z "${MENEGROTH_OP_UNLOCK_TOKEN:-}" ]]; then
+  echo "ERROR: MENEGROTH_OP_UNLOCK_TOKEN is not set." >&2
+  echo "  Export the READ-ONLY menegroth-unlock service-account token scoped to" >&2
+  echo "  the '$OP_VAULT' vault only (README seed steps), then re-run:" >&2
+  echo "    export MENEGROTH_OP_UNLOCK_TOKEN=...   # from op service-account create" >&2
+  echo "  The token is never written to disk." >&2
+  exit 1
+fi
+
+if [[ -f "$LEGACY_TOKEN_FILE" ]]; then
+  echo "==> Removing legacy on-disk token file ($LEGACY_TOKEN_FILE)"
+  rm -f "$LEGACY_TOKEN_FILE"
 fi
 
 op_sa() { # run op as the service account
-  OP_SERVICE_ACCOUNT_TOKEN="$(cat "$TOKEN_FILE")" "$OP" "$@"
+  OP_SERVICE_ACCOUNT_TOKEN="$MENEGROTH_OP_UNLOCK_TOKEN" "$OP" "$@"
 }
 
 echo "==> Verifying service-account access to the '$OP_VAULT' vault"
@@ -52,7 +56,7 @@ op_sa vault get "$OP_VAULT" >/dev/null
 if ! op_sa item get unlock-ssh-key --vault "$OP_VAULT" >/dev/null 2>&1; then
   echo "ERROR: item 'unlock-ssh-key' not found in '$OP_VAULT'." >&2
   echo "  Run the bootstrap phase that creates the vault items first:" >&2
-  echo "    OP_BOOTSTRAP_TOKEN=... scripts/bootstrap/bootstrap.sh 10-onepassword" >&2
+  echo "    MENEGROTH_OP_BOOTSTRAP_TOKEN=... scripts/bootstrap/bootstrap.sh 10-onepassword" >&2
   echo "  …then re-run this installer." >&2
   exit 1
 fi
@@ -74,6 +78,9 @@ for ref in \
 done
 [[ -z "${SELF_CHECK_FAILED:-}" ]] || exit 1
 
+echo "==> Loading the token into launchd's environment (memory only, no disk)"
+launchctl setenv MENEGROTH_OP_UNLOCK_TOKEN "$MENEGROTH_OP_UNLOCK_TOKEN"
+
 echo "==> Installing launchd agent"
 sed "s|__HOME__|${HOME}|g" com.ai-server.unlock.plist > "$PLIST_DEST"
 launchctl bootout "gui/$(id -u)" "$PLIST_DEST" 2>/dev/null || true
@@ -81,3 +88,6 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST"
 
 echo "==> Done. The agent polls every 30 s while this Mac is awake."
 echo "    Logs: ~/.local/state/ai-server-unlock/agent.log"
+echo "    NOTE: the token lives only in launchd memory — after a Mac reboot or"
+echo "    logout, hands-free unlock is DISABLED until you re-run this installer"
+echo "    (export MENEGROTH_OP_UNLOCK_TOKEN=... && ./install.sh)."

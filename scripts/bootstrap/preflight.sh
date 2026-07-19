@@ -62,14 +62,13 @@ fi
 # credential) — never a personal op session. Passing here proves the exact
 # token the agent will use can read all three items, and nothing else.
 step "1Password — vault items readable via the menegroth-unlock service account"
-token_file="$HOME/.config/ai-server-unlock/op-token"
 op_read_check() { # op_read_check <op-reference>
-  OP_SERVICE_ACCOUNT_TOKEN="$(cat "$token_file")" op read "$1" >/dev/null 2>&1
+  OP_SERVICE_ACCOUNT_TOKEN="$MENEGROTH_OP_UNLOCK_TOKEN" op read "$1" >/dev/null 2>&1
 }
 if ! command -v op >/dev/null 2>&1; then
   warn "skipped — op (1Password CLI) not installed"
-elif [[ ! -f "$token_file" ]]; then
-  fail "unlock token missing ($token_file) — run macos/install.sh with the menegroth-unlock token (README seed steps)"
+elif [[ -z "${MENEGROTH_OP_UNLOCK_TOKEN:-}" ]]; then
+  fail "\$MENEGROTH_OP_UNLOCK_TOKEN not set — export the menegroth-unlock service-account token (README seed steps); it is never stored on disk"
 else
   if op_read_check "op://$OP_VAULT/luks-passphrase/password"; then pass "luks-passphrase"; else fail "luks-passphrase unreadable"; fi
   if op_read_check "op://$OP_VAULT/unlock-ssh-key/private key?ssh-format=openssh"; then pass "unlock-ssh-key"; else fail "unlock-ssh-key unreadable"; fi

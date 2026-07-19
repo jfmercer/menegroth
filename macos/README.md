@@ -22,10 +22,15 @@ Apple Keychain or the Passwords app:
 The agent authenticates with a **1Password service account** that has
 **read-only access to this one vault and nothing else** — service accounts
 can never be granted your Private vault, so the blast radius of a stolen
-token is exactly these three revocable secrets. The token itself is the one
-bootstrap credential on disk (`~/.config/ai-server-unlock/op-token`, 0600,
-FileVault at rest). Because service accounts work headlessly, unlocks stay
-fully automatic even when the 1Password app is locked or not running.
+token is exactly these three revocable secrets. The token itself
+(`MENEGROTH_OP_UNLOCK_TOKEN`) is **never written to disk**: `install.sh`
+loads it into launchd's in-memory environment (`launchctl setenv`), where the
+agent reads it. The trade-off is that launchd's environment does not survive
+a Mac reboot or logout — re-run `install.sh` with the token exported
+afterwards, or hands-free unlock (and its ntfy alerting, whose URL is also in
+the vault) stays disabled until you do. Because service accounts work
+headlessly, unlocks stay fully automatic even when the 1Password app is
+locked or not running.
 
 The SSH private key never rests outside 1Password: at unlock time it is
 materialized into a 700 tmp dir for the single `ssh -i` call and removed on
@@ -49,19 +54,23 @@ a boot node is actually online — the routine 30 s poll makes no API calls
      single vault (service accounts can never see your Private vault).
   2. `scripts/bootstrap/10-onepassword.sh` (as `menegroth-bootstrap`) creates
      the `luks-passphrase` / `ntfy` / `unlock-ssh-key` items.
-  3. `./install.sh` prompts for the **`menegroth-unlock`** token and stores it
-     0600 at `~/.config/ai-server-unlock/op-token`.
+  3. `export MENEGROTH_OP_UNLOCK_TOKEN=...` (the **`menegroth-unlock`** token),
+     then `./install.sh` — the token goes into launchd memory only, never disk.
 
 ## Install
 
 ```bash
+export MENEGROTH_OP_UNLOCK_TOKEN=...   # menegroth-unlock service-account token
 cd macos && ./install.sh
 ```
 
-The installer stores the service-account token (0600), prints the public key
-for `packer/fde-image.pkr.hcl` (`mac_unlock_ssh_pubkey` — image rebuild
-required on first setup), self-checks that all three vault items are
-readable, and loads the launchd agent.
+The installer loads the service-account token into launchd's environment
+(memory only — nothing on disk), prints the public key for
+`packer/fde-image.pkr.hcl` (`mac_unlock_ssh_pubkey` — image rebuild required
+on first setup), self-checks that all three vault items are readable, and
+loads the launchd agent. **Re-run it (with the token exported) after every
+Mac reboot or logout** — launchd's environment is cleared then and the agent
+cannot unlock (or alert) without it.
 
 ## Behavior details
 
@@ -77,7 +86,7 @@ readable, and loads the launchd agent.
 
 - **Service account token:** revoke `menegroth-unlock` at 1password.com,
   create a replacement (read-only, `Menegroth` vault only), then
-  `rm ~/.config/ai-server-unlock/op-token && ./install.sh`.
+  `export MENEGROTH_OP_UNLOCK_TOKEN=... && ./install.sh`.
 - **Passphrase / SSH key:** edit in the 1Password app (avoid putting secret
   values on `op` command lines — argv is visible to other processes), then
   follow `docs/runbooks/key-rotation.md`.
@@ -87,6 +96,6 @@ readable, and loads the launchd agent.
 ```bash
 launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.ai-server.unlock.plist
 rm ~/Library/LaunchAgents/com.ai-server.unlock.plist ~/.local/bin/ai-server-unlock
-rm ~/.config/ai-server-unlock/op-token
+launchctl unsetenv MENEGROTH_OP_UNLOCK_TOKEN
 # then revoke the service account at 1password.com
 ```

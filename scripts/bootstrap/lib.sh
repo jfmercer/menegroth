@@ -140,19 +140,19 @@ infisical_get() { # infisical_get <path> <KEY> -> value on stdout ("" if absent)
 # vault-scoped service account, so 1Password enforces Menegroth-only access
 # server-side (service accounts can never be granted the Private vault).
 #   - bootstrap phases -> menegroth-bootstrap SA (read+write items) via the
-#     $OP_BOOTSTRAP_TOKEN seed; REVOKE it once the bootstrap is complete.
-#   - Mac agent / preflight -> menegroth-unlock SA (read-only) via the token
-#     file written by macos/install.sh.
+#     $MENEGROTH_OP_BOOTSTRAP_TOKEN seed; REVOKE it once bootstrap completes.
+#   - Mac agent / preflight -> menegroth-unlock SA (read-only) via
+#     $MENEGROTH_OP_UNLOCK_TOKEN (never written to disk).
 op_bootstrap_ready() {
   require_cmd op "brew install 1password-cli"
-  if [[ -z "${OP_BOOTSTRAP_TOKEN:-}" ]]; then
-    is_dry && { warn "seed \$OP_BOOTSTRAP_TOKEN not set (ok for --dry-run)"; return 0; }
-    die "seed \$OP_BOOTSTRAP_TOKEN is not set — export the menegroth-bootstrap service-account token (README seed steps). Project scripts never use a personal op session."
+  if [[ -z "${MENEGROTH_OP_BOOTSTRAP_TOKEN:-}" ]]; then
+    is_dry && { warn "seed \$MENEGROTH_OP_BOOTSTRAP_TOKEN not set (ok for --dry-run)"; return 0; }
+    die "seed \$MENEGROTH_OP_BOOTSTRAP_TOKEN is not set — export the menegroth-bootstrap service-account token (README seed steps). Project scripts never use a personal op session."
   fi
 }
 
 op_sa() { # run op as the bootstrap service account (Menegroth vault only)
-  OP_SERVICE_ACCOUNT_TOKEN="${OP_BOOTSTRAP_TOKEN:-}" op "$@"
+  OP_SERVICE_ACCOUNT_TOKEN="${MENEGROTH_OP_BOOTSTRAP_TOKEN:-}" op "$@"
 }
 
 # ---- Tailscale API ----------------------------------------------------------

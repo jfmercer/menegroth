@@ -48,8 +48,9 @@ Key properties:
   built by the `packer/` pipeline; unencrypted `/boot` only) and the data
   volume is LUKS2. At boot the initramfs joins the tailnet as an ephemeral
   `tag:boot-unlock` node and a launchd agent on your Mac (`macos/`) delivers
-  the passphrase from 1Password automatically — reboots are hands-free
-  while your Mac is awake, and the Hetzner console is the manual fallback.
+  the passphrase from 1Password automatically — reboots are hands-free while
+  your Mac is awake (and its in-memory unlock token has been re-provided since
+  the Mac's own last reboot); the Hetzner console is the manual fallback.
 - **Dark host.** The Hetzner Cloud Firewall drops all inbound traffic. SSH and
   every service are reachable only over the tailnet (Tailscale requires no
   inbound ports). Break-glass access is the Hetzner web console — see
@@ -109,7 +110,7 @@ project can touch the `Menegroth` vault and nothing else.
 | **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **Anthropic** | an API key | `ANTHROPIC_API_KEY` (→ `/server`) |
-| **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `OP_BOOTSTRAP_TOKEN` (script); unlock token (→ `macos/install.sh`) |
+| **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
 
 The two Infisical identities are org-level objects (create each → give it
 Universal Auth → add to the project with a path-scoped role):
@@ -129,12 +130,15 @@ never be granted your Private vault. Create them at 1password.com →
 personal-session act in this project):
 
 - **`menegroth-bootstrap`** — grant **read & write items** on `Menegroth`
-  **only**. Its token is the `OP_BOOTSTRAP_TOKEN` seed (creates/reads the vault
-  items during bootstrap). **Revoke this account when the bootstrap is done**
-  (step 4).
+  **only**. Its token is the `MENEGROTH_OP_BOOTSTRAP_TOKEN` seed (creates/reads
+  the vault items during bootstrap). **Revoke this account when the bootstrap
+  is done** (step 4).
 - **`menegroth-unlock`** — grant **read items** on `Menegroth` **only**. Its
-  token is what `macos/install.sh` prompts for and stores (0600) for the Mac
-  unlock agent.
+  token is the `MENEGROTH_OP_UNLOCK_TOKEN` environment variable, which
+  `macos/install.sh` loads into launchd's in-memory environment for the Mac
+  unlock agent. It is **never written to disk** — which also means it does not
+  survive a Mac reboot/logout: re-export it and re-run `macos/install.sh`
+  afterwards, or hands-free unlock stays disabled.
 
 ```bash
 # CLI alternative (run by YOU, once — tokens print once, copy them):
@@ -153,7 +157,7 @@ cp bootstrap.env.example bootstrap.env
 $EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID (+ any overrides)
 
 # Provide the seed secrets in your shell (see the SEEDS block in the .env):
-export OP_BOOTSTRAP_TOKEN=...         # menegroth-bootstrap service account
+export MENEGROTH_OP_BOOTSTRAP_TOKEN=...  # menegroth-bootstrap service account
 export HCLOUD_TOKEN=... TS_API_TOKEN=... TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...
 export TF_API_TOKEN=... INFISICAL_CLIENT_ID=... INFISICAL_CLIENT_SECRET=...
 export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=... ANTHROPIC_API_KEY=...
@@ -166,8 +170,12 @@ The four phases (1Password → Tailscale → Infisical → GitHub) push the tail
 ACL, mint the `tag:server` and `tag:boot-unlock` keys, generate the LUKS and
 admin SSH keys, and store every secret at its exact path/name — with all
 1Password access running as the vault-scoped `menegroth-bootstrap` service
-account. Then load the Mac unlock agent: `cd ../../macos && ./install.sh`
-(it prompts for the `menegroth-unlock` token and stores it).
+account. Then load the Mac unlock agent:
+
+```bash
+export MENEGROTH_OP_UNLOCK_TOKEN=...  # menegroth-unlock service account
+cd ../../macos && ./install.sh        # loads the token into launchd (memory only)
+```
 
 ### 3. Preflight, then build
 
@@ -184,9 +192,10 @@ exists yet is expected until this build runs.
 
 Once the bootstrap is complete (preflight green, image built), revoke
 **`menegroth-bootstrap`** at 1password.com → Developer → Service Accounts and
-`unset OP_BOOTSTRAP_TOKEN`. The only standing 1Password credential is then the
-read-only `menegroth-unlock` token on the Mac — re-create a bootstrap account
-the same way if you ever re-run the vault phases.
+`unset MENEGROTH_OP_BOOTSTRAP_TOKEN`. The only standing 1Password credential is
+then the read-only `menegroth-unlock` token in the Mac's launchd memory (never
+on disk) — re-create a bootstrap account the same way if you ever re-run the
+vault phases.
 
 > **The two public keys live in Infisical, not source.** `admin_ssh_public_key`
 > and `mac_unlock_ssh_pubkey` are injected in CI as `TF_VAR_`/`PKR_VAR_` from
