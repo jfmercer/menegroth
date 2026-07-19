@@ -40,15 +40,17 @@ a boot node is actually online — the routine 30 s poll makes no API calls
   device to reach `tag:boot-unlock:22`.
 - 1Password CLI: `brew install 1password-cli`.
 - Xcode Command Line Tools (`/usr/bin/python3` parses `tailscale status`).
-- One-time 1Password setup is done by the bootstrap script
-  (`scripts/bootstrap/10-onepassword.sh`): it creates the `Menegroth`
-  vault, the `luks-passphrase` / `ntfy` / `unlock-ssh-key` items, and a
-  read-only service account, and writes the service-account token to
-  `~/.config/ai-server-unlock/op-token`. Run that before `./install.sh`.
-  To do it by hand instead: create the vault + `luks-passphrase`/`ntfy` items,
-  generate the key with
-  `op item create --category 'SSH Key' --title unlock-ssh-key --vault Menegroth --ssh-generate-key ed25519`,
-  and create a read-only service account scoped to that vault only.
+- One-time 1Password setup (see the README seed steps for details):
+  1. **You** create the `Menegroth` vault and two vault-scoped service
+     accounts — `menegroth-bootstrap` (read+write items; revoked after
+     bootstrap) and `menegroth-unlock` (read-only; this agent's identity).
+     Project scripts never use a personal `op` session: everything runs as
+     one of these accounts, so 1Password itself confines the project to this
+     single vault (service accounts can never see your Private vault).
+  2. `scripts/bootstrap/10-onepassword.sh` (as `menegroth-bootstrap`) creates
+     the `luks-passphrase` / `ntfy` / `unlock-ssh-key` items.
+  3. `./install.sh` prompts for the **`menegroth-unlock`** token and stores it
+     0600 at `~/.config/ai-server-unlock/op-token`.
 
 ## Install
 
@@ -73,7 +75,8 @@ readable, and loads the launchd agent.
 
 ## Rotation & revocation
 
-- **Service account token:** revoke at 1password.com, create a new one, then
+- **Service account token:** revoke `menegroth-unlock` at 1password.com,
+  create a replacement (read-only, `Menegroth` vault only), then
   `rm ~/.config/ai-server-unlock/op-token && ./install.sh`.
 - **Passphrase / SSH key:** edit in the 1Password app (avoid putting secret
   values on `op` command lines — argv is visible to other processes), then

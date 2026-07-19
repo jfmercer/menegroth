@@ -195,9 +195,19 @@ idempotent shell scripts driving `op`, `infisical`, `gh`, `openssl`, and the
 Tailscale REST API (`curl`), plus `hcloud` in the preflight validator. From a
 small set of hand-made **seed credentials** (the accounts/tokens that
 authenticate the automation — Hetzner token, Tailscale API token + `tag:ci`
-OAuth client, the two Infisical identities, HCP token, 1Password sign-in), the
-scripts generate and store everything else, and `preflight.sh` verifies the
-whole tenant before the first Packer build. To remove source-file edits from
+OAuth client, the two Infisical identities, HCP token, and two 1Password
+**service accounts** scoped to the `Menegroth` vault), the scripts generate and
+store everything else, and `preflight.sh` verifies the whole tenant before the
+first Packer build.
+
+**1Password scope containment:** project scripts never use a personal `op`
+session. All access runs as one of two vault-scoped service accounts —
+`menegroth-bootstrap` (read+write items; used only during bootstrap and
+**revoked afterwards**) and `menegroth-unlock` (read-only; the Mac agent's
+standing credential) — so 1Password enforces server-side that the project can
+reach the `Menegroth` vault and nothing else (service accounts structurally
+cannot be granted the Private vault). Preflight validates with the unlock
+token itself, proving the agent's real credential works. To remove source-file edits from
 the flow, the two public keys now live in Infisical (`/ci/ADMIN_SSH_PUBLIC_KEY`,
 `/unlock/MAC_UNLOCK_SSH_PUBKEY`) and CI injects them as `TF_VAR_`/`PKR_VAR_`.
 

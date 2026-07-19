@@ -42,12 +42,12 @@ gen_put() { # gen_put <path> <KEY> <generator-command...>
   put "$path" "$key" "$("$@")"
 }
 
-op_put() { # op_put <path> <KEY> <op://reference>
+op_put() { # op_put <path> <KEY> <op://reference> — reads as the bootstrap SA
   local path="$1" key="$2" ref="$3"
   [[ -n "$(infisical_get "$path" "$key")" ]] && { ok "$key exists in $path — unchanged"; return 0; }
-  dry_skip "read $ref from 1Password -> $path/$key" && return 0
-  require_cmd op
-  put "$path" "$key" "$(op read "$ref")"
+  dry_skip "read $ref from 1Password (bootstrap SA) -> $path/$key" && return 0
+  op_bootstrap_ready
+  put "$path" "$key" "$(op_sa read "$ref")"
 }
 
 # ---- Seeds (from the environment) -------------------------------------------

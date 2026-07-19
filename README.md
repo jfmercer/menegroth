@@ -92,10 +92,13 @@ script, which generates and stores everything else (root/data LUKS keys, the
 admin SSH key, the Tailscale ACL and join keys, the 1Password vault) into
 Infisical, 1Password, and GitHub.
 
-**Prerequisites:** install and sign in to the CLIs the script drives —
-`op` (1Password), `gh` (GitHub), `infisical`, plus `jq`, `curl`, `openssl`, and
-optionally `hcloud` (preflight): `eval $(op signin)`, `gh auth login`,
-`infisical login`.
+**Prerequisites:** install the CLIs the script drives — `op` (1Password),
+`gh` (GitHub), `infisical`, plus `jq`, `curl`, `openssl`, and optionally
+`hcloud` (preflight). Sign in to `gh` (`gh auth login`) and `infisical`
+(`infisical login`). **Do not sign `op` in for the scripts** — project scripts
+never use a personal 1Password session; they authenticate with vault-scoped
+service-account tokens only (below), so 1Password itself enforces that the
+project can touch the `Menegroth` vault and nothing else.
 
 ### 1. Seed credentials (create by hand)
 
@@ -106,7 +109,7 @@ optionally `hcloud` (preflight): `eval $(op signin)`, `gh auth login`,
 | **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **Anthropic** | an API key | `ANTHROPIC_API_KEY` (→ `/server`) |
-| **1Password** | signed in with rights to create a vault + service account | the script creates the vault |
+| **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `OP_BOOTSTRAP_TOKEN` (script); unlock token (→ `macos/install.sh`) |
 
 The two Infisical identities are org-level objects (create each → give it
 Universal Auth → add to the project with a path-scoped role):
@@ -119,6 +122,26 @@ Universal Auth → add to the project with a path-scoped role):
   `/ci/SERVER_IDENTITY_CLIENT_ID` / `_SECRET` (the script stores them), where
   the Ansible `infisical` role later delivers them onto the host.
 
+The two 1Password **service accounts** confine the project to the `Menegroth`
+vault — 1Password enforces the scope server-side, and service accounts can
+never be granted your Private vault. Create them at 1password.com →
+**Developer → Service Accounts** (or with your own `op` session — your only
+personal-session act in this project):
+
+- **`menegroth-bootstrap`** — grant **read & write items** on `Menegroth`
+  **only**. Its token is the `OP_BOOTSTRAP_TOKEN` seed (creates/reads the vault
+  items during bootstrap). **Revoke this account when the bootstrap is done**
+  (step 4).
+- **`menegroth-unlock`** — grant **read items** on `Menegroth` **only**. Its
+  token is what `macos/install.sh` prompts for and stores (0600) for the Mac
+  unlock agent.
+
+```bash
+# CLI alternative (run by YOU, once — tokens print once, copy them):
+op service-account create menegroth-bootstrap --vault "Menegroth:read_items,write_items"
+op service-account create menegroth-unlock   --vault "Menegroth:read_items"
+```
+
 You do **not** create the ACL, the auth keys, the LUKS keys, the admin SSH key,
 or the 1Password items by hand — the script does all of that.
 
@@ -130,6 +153,7 @@ cp bootstrap.env.example bootstrap.env
 $EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID (+ any overrides)
 
 # Provide the seed secrets in your shell (see the SEEDS block in the .env):
+export OP_BOOTSTRAP_TOKEN=...         # menegroth-bootstrap service account
 export HCLOUD_TOKEN=... TS_API_TOKEN=... TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...
 export TF_API_TOKEN=... INFISICAL_CLIENT_ID=... INFISICAL_CLIENT_SECRET=...
 export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=... ANTHROPIC_API_KEY=...
@@ -140,9 +164,10 @@ export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=... ANTHROPIC
 
 The four phases (1Password → Tailscale → Infisical → GitHub) push the tailnet
 ACL, mint the `tag:server` and `tag:boot-unlock` keys, generate the LUKS and
-admin SSH keys, and store every secret at its exact path/name. Then load the
-Mac unlock agent: `cd ../../macos && ./install.sh` (the vault and token are
-already in place from phase 1).
+admin SSH keys, and store every secret at its exact path/name — with all
+1Password access running as the vault-scoped `menegroth-bootstrap` service
+account. Then load the Mac unlock agent: `cd ../../macos && ./install.sh`
+(it prompts for the `menegroth-unlock` token and stores it).
 
 ### 3. Preflight, then build
 
@@ -154,6 +179,14 @@ Fix any `FAIL` lines, then dispatch the **Packer FDE image** workflow
 (workflow_dispatch). It builds the LUKS2-root snapshot; Terraform selects the
 newest `fde=true` one on the next apply. A `WARN` that no `fde=true` snapshot
 exists yet is expected until this build runs.
+
+### 4. Revoke the bootstrap service account
+
+Once the bootstrap is complete (preflight green, image built), revoke
+**`menegroth-bootstrap`** at 1password.com → Developer → Service Accounts and
+`unset OP_BOOTSTRAP_TOKEN`. The only standing 1Password credential is then the
+read-only `menegroth-unlock` token on the Mac — re-create a bootstrap account
+the same way if you ever re-run the vault phases.
 
 > **The two public keys live in Infisical, not source.** `admin_ssh_public_key`
 > and `mac_unlock_ssh_pubkey` are injected in CI as `TF_VAR_`/`PKR_VAR_` from
