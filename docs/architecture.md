@@ -63,11 +63,11 @@ read-only to that single vault (service accounts can never see the Private
 vault). A recovery copy sits in Infisical under `/unlock/` — a path the
 **server's own identity cannot read** (only the human/CI identities can).
 The server can never unlock itself. Apple Keychain and the Passwords app
-hold no project secrets, and **no Mac credential touches disk at all**: the
-service-account token (`MENEGROTH_OP_UNLOCK_TOKEN`) lives only in launchd's
-in-memory environment, re-provided by re-running `macos/install.sh` after a
-Mac reboot/logout (until then, hands-free unlock and its ntfy alerting are
-disabled — the console fallback still works).
+hold no project secrets; the only on-disk Mac credential is the 0600
+service-account token file (kept on disk deliberately, so hands-free unlock
+survives Mac reboots — an in-memory-only token was tried and rejected
+because launchd's environment is cleared at reboot, silently disabling both
+unlock and its ntfy alerting until manually re-provided).
 
 **Honest threat model:**
 
@@ -206,13 +206,12 @@ first Packer build.
 **1Password scope containment:** project scripts never use a personal `op`
 session. All access runs as one of two vault-scoped service accounts —
 `menegroth-bootstrap` (read+write items; used only during bootstrap and
-**revoked afterwards**; `$MENEGROTH_OP_BOOTSTRAP_TOKEN`) and `menegroth-unlock`
-(read-only; the Mac agent's standing credential, `$MENEGROTH_OP_UNLOCK_TOKEN`,
-held only in launchd memory — never on disk) — so 1Password enforces
-server-side that the project can reach the `Menegroth` vault and nothing else
-(service accounts structurally cannot be granted the Private vault). Preflight
-validates with the unlock token itself, proving the agent's real credential
-works. To remove source-file edits from
+**revoked afterwards**; the `$MENEGROTH_OP_BOOTSTRAP_TOKEN` seed) and
+`menegroth-unlock` (read-only; the Mac agent's standing credential, stored
+0600 by `macos/install.sh`) — so 1Password enforces server-side that the
+project can reach the `Menegroth` vault and nothing else (service accounts
+structurally cannot be granted the Private vault). Preflight validates with
+the unlock token itself, proving the agent's real credential works. To remove source-file edits from
 the flow, the two public keys now live in Infisical (`/ci/ADMIN_SSH_PUBLIC_KEY`,
 `/unlock/MAC_UNLOCK_SSH_PUBKEY`) and CI injects them as `TF_VAR_`/`PKR_VAR_`.
 

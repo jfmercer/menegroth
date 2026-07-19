@@ -80,12 +80,12 @@ fi
 
 # ---- Unlock service-account token (the Mac agent's credential) --------------
 step "Unlock token (menegroth-unlock service account, read-only)"
-if [[ -n "${MENEGROTH_OP_UNLOCK_TOKEN:-}" ]]; then
-  ok "\$MENEGROTH_OP_UNLOCK_TOKEN is set in this shell"
+token_file="$HOME/.config/ai-server-unlock/op-token"
+if [[ -f "$token_file" ]]; then
+  ok "token file present ($token_file)"
 else
-  info "\$MENEGROTH_OP_UNLOCK_TOKEN not set here — the token is never stored on"
-  info "disk; export it before running macos/install.sh and preflight.sh, and"
-  info "re-run macos/install.sh after each Mac reboot (README seed steps)."
+  info "not stored yet — macos/install.sh writes it 0600 to $token_file"
+  info "(export \$MENEGROTH_OP_UNLOCK_TOKEN first, or paste at its prompt)."
 fi
 
 ok "1Password phase complete"

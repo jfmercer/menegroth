@@ -17,6 +17,7 @@ mkdir -p "$STATE_DIR"
 
 # Defaults, overridable in $CONFIG.
 BOOT_TAG="tag:boot-unlock"
+OP_TOKEN_FILE="${HOME}/.config/ai-server-unlock/op-token"
 OP_VAULT="Menegroth"
 OP_LUKS_REF="op://${OP_VAULT}/luks-passphrase/password"
 OP_SSH_KEY_REF="op://${OP_VAULT}/unlock-ssh-key/private key?ssh-format=openssh"
@@ -43,8 +44,8 @@ find_bin() { # $1=name, remaining args = fallback paths (launchd has a bare PATH
 
 TS="$(find_bin tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
 
-op_read() { # $1=secret reference — token comes from the launchd environment
-  OP_SERVICE_ACCOUNT_TOKEN="${MENEGROTH_OP_UNLOCK_TOKEN:-}" "$OP" read "$1"
+op_read() { # $1=secret reference — token comes from the 0600 token file
+  OP_SERVICE_ACCOUNT_TOKEN="$(cat "$OP_TOKEN_FILE")" "$OP" read "$1"
 }
 
 notify() { # $1=priority $2=title $3=body — best-effort, never fatal
@@ -77,12 +78,10 @@ fi
 # A boot node exists — from here on we need 1Password.
 OP="$(find_bin op /opt/homebrew/bin/op /usr/local/bin/op)"
 
-# The unlock token lives ONLY in launchd's in-memory environment (install.sh
-# runs `launchctl setenv`); it is never on disk and does not survive a Mac
-# reboot. Without it we can neither unlock nor send an ntfy alert (the ntfy
+# Without the token we can neither unlock nor send an ntfy alert (the ntfy
 # URL is itself in the vault) — log loudly so agent.log explains the silence.
-if [[ -z "${MENEGROTH_OP_UNLOCK_TOKEN:-}" ]]; then
-  echo "ai-server-unlock: server is waiting at the boot prompt but MENEGROTH_OP_UNLOCK_TOKEN is missing from the launchd environment (lost at Mac reboot) — re-run macos/install.sh to re-provide it" >&2
+if [[ ! -r "$OP_TOKEN_FILE" ]]; then
+  echo "ai-server-unlock: server is waiting at the boot prompt but the token file ($OP_TOKEN_FILE) is missing/unreadable — re-run macos/install.sh" >&2
   exit 1
 fi
 

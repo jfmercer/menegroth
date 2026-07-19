@@ -141,8 +141,8 @@ infisical_get() { # infisical_get <path> <KEY> -> value on stdout ("" if absent)
 # server-side (service accounts can never be granted the Private vault).
 #   - bootstrap phases -> menegroth-bootstrap SA (read+write items) via the
 #     $MENEGROTH_OP_BOOTSTRAP_TOKEN seed; REVOKE it once bootstrap completes.
-#   - Mac agent / preflight -> menegroth-unlock SA (read-only) via
-#     $MENEGROTH_OP_UNLOCK_TOKEN (never written to disk).
+#   - Mac agent / preflight -> menegroth-unlock SA (read-only) via the 0600
+#     token file written by macos/install.sh (survives Mac reboots).
 op_bootstrap_ready() {
   require_cmd op "brew install 1password-cli"
   if [[ -z "${MENEGROTH_OP_BOOTSTRAP_TOKEN:-}" ]]; then
