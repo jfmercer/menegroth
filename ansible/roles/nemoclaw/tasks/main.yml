@@ -50,5 +50,6 @@
   ansible.builtin.command: /usr/local/bin/nemoclaw-install
   args:
     creates: "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
-  # The wrapper exports the provider API key into the installer env.
+  # The wrapper exports the provider API key (when configured) into the
+  # installer env.
   no_log: true

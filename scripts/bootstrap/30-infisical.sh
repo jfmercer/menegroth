@@ -58,9 +58,6 @@ put /ci TS_OAUTH_SECRET              "${TS_OAUTH_SECRET:-}"
 put /ci SERVER_IDENTITY_CLIENT_ID     "${SERVER_IDENTITY_CLIENT_ID:-}"
 put /ci SERVER_IDENTITY_CLIENT_SECRET "${SERVER_IDENTITY_CLIENT_SECRET:-}"
 
-step "/server — seed credentials"
-put /server ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}"
-
 # ---- Generated --------------------------------------------------------------
 step "/server — generated data-volume LUKS key"
 gen_put /server DATA_VOLUME_LUKS_KEY gen_secret

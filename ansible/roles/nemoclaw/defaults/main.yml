@@ -18,10 +18,12 @@ nemoclaw_home: /data/nemoclaw
 nemoclaw_agent: openclaw
 # Inference provider: anthropic | openai | openrouter | gemini | routed | ...
 nemoclaw_provider: anthropic
-# Infisical secret (under /server) holding that provider's API key, and the
-# env var name the provider expects.
-nemoclaw_provider_key_secret: ANTHROPIC_API_KEY
-nemoclaw_provider_key_env: ANTHROPIC_API_KEY
+# Optional inference credential. To enable: store the provider's API key in
+# Infisical under /server, then set both vars — the secret name and the env
+# var the provider expects (e.g. ANTHROPIC_API_KEY for anthropic). Empty =
+# the installer runs with no provider key exported.
+nemoclaw_provider_key_secret: ""
+nemoclaw_provider_key_env: ""
 # suggested = NemoClaw's hardened default network policy
 nemoclaw_policy_mode: suggested
 nemoclaw_sandbox_name: main

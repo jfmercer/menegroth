@@ -36,7 +36,7 @@ fi
 # ---- Infisical --------------------------------------------------------------
 step "Infisical — required secrets by exact name"
 CI_KEYS="HCLOUD_TOKEN TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TS_SERVER_AUTHKEY SSH_PRIVATE_KEY ADMIN_SSH_PUBLIC_KEY SERVER_IDENTITY_CLIENT_ID SERVER_IDENTITY_CLIENT_SECRET"
-SERVER_KEYS="DATA_VOLUME_LUKS_KEY ANTHROPIC_API_KEY NTFY_TOPIC_URL"
+SERVER_KEYS="DATA_VOLUME_LUKS_KEY NTFY_TOPIC_URL"
 UNLOCK_KEYS="ROOT_LUKS_KEY TS_BOOT_AUTHKEY MAC_UNLOCK_SSH_PUBKEY"
 if command -v infisical >/dev/null 2>&1 && [[ -n "${INFISICAL_PROJECT_ID:-}" && "${INFISICAL_PROJECT_ID:-}" != "REPLACE_WITH_PROJECT_ID" ]] \
   && infisical secrets --projectId="$INFISICAL_PROJECT_ID" --env="$INFISICAL_ENV" --path=/ci --domain="$INFISICAL_DOMAIN" >/dev/null 2>&1; then

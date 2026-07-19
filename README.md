@@ -57,8 +57,8 @@ Key properties:
 - **Secrets never live in this repo or in GitHub, except three bootstrap
   credentials.** GitHub repo secrets hold only the Infisical machine-identity
   credentials (client ID + secret) and the HCP Terraform token; workflows pull everything else
-  (Hetzner token, Tailscale OAuth client, ntfy topic, LLM API keys) from
-  Infisical at run time.
+  (Hetzner token, Tailscale OAuth client, ntfy topic) from Infisical at
+  run time.
 - **Key custody is split.** The data-volume key comes from Infisical (the
   server's own identity can read it); the root passphrase lives in a
   dedicated 1Password vault (service-account, read-only, that vault only)
@@ -108,7 +108,6 @@ project can touch the `Menegroth` vault and nothing else.
 | **Infisical** (EU, `eu.infisical.com`) | project `menegroth`/`prod` + two universal-auth machine identities (below) | GitHub secrets + `/ci` |
 | **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
-| **Anthropic** | an API key | `ANTHROPIC_API_KEY` (→ `/server`) |
 | **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
 
 The two Infisical identities are org-level objects (create each → give it
@@ -158,7 +157,7 @@ $EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID (+ any override
 export MENEGROTH_OP_BOOTSTRAP_TOKEN=...  # menegroth-bootstrap service account
 export HCLOUD_TOKEN=... TS_API_TOKEN=... TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...
 export TF_API_TOKEN=... INFISICAL_CLIENT_ID=... INFISICAL_CLIENT_SECRET=...
-export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=... ANTHROPIC_API_KEY=...
+export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=...
 
 ./bootstrap.sh --dry-run              # preview — touches nothing
 ./bootstrap.sh                        # create/store everything (idempotent; safe to re-run)

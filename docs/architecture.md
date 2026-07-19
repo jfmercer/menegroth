@@ -110,8 +110,10 @@ Secret layout in the `menegroth` project, `prod` environment:
 /ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
 /ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
 /server/DATA_VOLUME_LUKS_KEY
-/server/ANTHROPIC_API_KEY  (and other LLM provider keys)
 /server/NTFY_TOPIC_URL     Alerting destination
+                           (LLM provider keys also go under /server if/when
+                           NemoClaw inference is configured — see the
+                           nemoclaw role's nemoclaw_provider_key_* vars)
 /server/RESTIC_REPOSITORY  (optional) restic backup target + password,
 /server/RESTIC_PASSWORD    only if ops_restic_enabled
 /unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
