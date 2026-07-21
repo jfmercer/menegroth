@@ -21,12 +21,16 @@ cd packer && packer init . && packer fmt -check . && \
     -var boot_tailscale_authkey=placeholder \
     -var 'mac_unlock_ssh_pubkey=ssh-ed25519 AAAAplaceholder ci-validate' .
 
-# Ansible — collections install into ansible/collections/ (gitignored)
-cd ansible && ansible-galaxy collection install -r requirements.yml && \
-  ansible-lint && ansible-playbook site.yml --syntax-check
+# Ansible — the controller toolchain (ansible-core, ansible-lint) is uv-managed
+# (pyproject.toml + uv.lock, pinned Python via .python-version); collections
+# install into ansible/collections/ (gitignored). uv finds the root project
+# when run from ansible/.
+uv sync --frozen
+cd ansible && uv run ansible-galaxy collection install -r requirements.yml && \
+  uv run ansible-lint && uv run ansible-playbook site.yml --syntax-check
 
 # Everything at once (gitleaks, terraform fmt/validate/tflint, ansible-lint, ...)
-pre-commit run -a
+uv run pre-commit run -a
 
 # Bootstrap scripts (one-time; shellcheck with -x to follow sourced lib.sh)
 cd scripts/bootstrap && shellcheck -x ./*.sh && ./bootstrap.sh --dry-run

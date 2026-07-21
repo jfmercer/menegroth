@@ -18,8 +18,12 @@
     "terraform",
     "pre-commit",
     "ansible-galaxy",
+    "pep621", // the uv toolchain in pyproject.toml (dependency-groups.dev)
     "custom.regex",
   ],
+  // Refresh uv.lock (and any terraform lock) on the weekly schedule so pinned
+  // transitive versions don't drift stale between direct-dependency bumps.
+  lockFileMaintenance: { enabled: true },
   // Regex managers for pins no native manager understands. Each reads a
   // `# renovate: datasource=… depName=…` annotation on the line above the pin.
   customManagers: [
@@ -67,6 +71,13 @@
     {
       matchManagers: ["terraform", "ansible-galaxy"],
       groupName: "infra providers",
+    },
+    {
+      // uv-managed Python toolchain (ansible-core, ansible-lint, pre-commit).
+      // The interpreter pin (.python-version / requires-python) is bumped by
+      // hand — a deliberate annual step, like ubuntu_series.
+      matchManagers: ["pep621"],
+      groupName: "python tooling",
     },
     {
       // tailscale is baked into the Packer initramfs — its own PR, flagged so

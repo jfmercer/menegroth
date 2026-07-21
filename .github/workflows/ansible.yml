@@ -27,17 +27,19 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      # uv installs the locked toolchain (ansible-core + ansible-lint) and the
+      # pinned Python (.python-version) — reproducible, no loose `pip install`.
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          python-version: "3.12"
-      - name: Install Ansible tooling
-        run: pip install ansible-core ansible-lint
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
       - name: Install collections
-        run: ansible-galaxy collection install -r requirements.yml
+        run: uv run ansible-galaxy collection install -r requirements.yml
       - name: ansible-lint
-        run: ansible-lint
+        run: uv run ansible-lint
       - name: Syntax check
-        run: ansible-playbook site.yml --syntax-check
+        run: uv run ansible-playbook site.yml --syntax-check
 
   provision:
     name: Provision over tailnet
@@ -72,15 +74,15 @@ jobs:
           tags: tag:ci
           version: latest
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          python-version: "3.12"
-      - name: Install Ansible
-        run: pip install ansible-core
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
       - name: Install collections
-        run: ansible-galaxy collection install -r requirements.yml
+        run: uv run ansible-galaxy collection install -r requirements.yml
 
       - name: Run playbook
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False" # host keys are vouched by Tailscale SSH
-        run: ansible-playbook site.yml
+        run: uv run ansible-playbook site.yml

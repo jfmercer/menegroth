@@ -31,6 +31,11 @@ infisical.json
 # Bootstrap — local config (may reference seed locations); never the .example
 scripts/bootstrap/bootstrap.env
 
+# Python / uv — the interpreter + lockfile are pinned in pyproject.toml +
+# uv.lock (committed); the resolved venv and caches are not.
+.venv/
+__pycache__/
+
 # Editors / OS
 .DS_Store
 .idea/

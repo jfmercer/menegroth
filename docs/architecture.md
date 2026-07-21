@@ -298,6 +298,22 @@ a solo project; (b) a single project with both identities as members — rejecte
 built-in roles can't stop the `server` identity from reading `/unlock`, breaking
 the one invariant this whole design exists to hold.
 
+### D9 — Python toolchain: uv-managed, latest-stable, locked
+
+The repo ships no Python package; its only Python is the Ansible controller
+tooling (`ansible-core`, `ansible-lint`) plus `pre-commit`. These are pinned in
+`pyproject.toml` + `uv.lock` on the latest stable interpreter (`.python-version`
+= 3.14; ansible-core 2.21 supports 3.14 as a controller), and both CI
+(`ansible.yml`, via `astral-sh/setup-uv`) and local runs use `uv sync --frozen`
++ `uv run`. Renovate's `pep621` manager + `lockFileMaintenance` keep it current;
+the interpreter pin is bumped by hand (annual, like `ubuntu_series`). The macOS
+unlock agent's stdlib `/usr/bin/python3` one-liner is **deliberately excluded** —
+uv must never be a dependency in the boot-unlock critical path.
+
+*Alternative considered:* plain `pip install ansible-core ansible-lint` in CI
+(the prior approach) — rejected: unpinned and non-reproducible, and the direct
+source of the version drift the repo has repeatedly hit.
+
 ## Provisioning flow
 
 1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:

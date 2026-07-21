@@ -9,7 +9,7 @@
   - ~~Add zizmor~~
   - ~~Add CodeQL~~
 - Code Improvements
-  - Manage Python with `uv`
+  - ~~Manage Python with `uv`~~
 - Add [dotfiles](https://github.com/jfmercer) auto-installation
 - ~~Rename 1Password vault from `AI-Server-Unlock` to Menegroth~~
-- Remove `ANTHROPIC_API_KEY`
+- ~~Remove `ANTHROPIC_API_KEY`~~

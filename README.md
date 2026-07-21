@@ -230,10 +230,15 @@ account the same way if you ever re-run the vault phases.
 
 ## Local development
 
+Prereq: [uv](https://docs.astral.sh/uv/) — it manages all dev/CI Python
+(Ansible + linters + pre-commit), pinned in `pyproject.toml` + `uv.lock` on the
+latest stable Python (`.python-version`). uv installs the interpreter itself.
+
 ```bash
-pipx install pre-commit && pre-commit install   # or: pip install --user pre-commit
+uv sync                       # installs the locked toolchain + pinned Python
+uv run pre-commit install
 cd terraform && terraform fmt -recursive && terraform validate
-cd ansible && ansible-lint
+cd ../ansible && uv run ansible-lint
 ```
 
 ## Build phases
