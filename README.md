@@ -90,7 +90,9 @@ small set of **seed credentials** by hand — the accounts/tokens that
 *authenticate the automation*, so they can't be automated away — then run the
 script, which generates and stores everything else (root/data LUKS keys, the
 admin SSH key, the Tailscale ACL and join keys, the 1Password vault) into
-Infisical, 1Password, and GitHub.
+Infisical, 1Password, and GitHub. A condensed, tick-through version of the
+steps below lives in
+[docs/runbooks/bootstrap-checklist.md](docs/runbooks/bootstrap-checklist.md).
 
 **Prerequisites:** install the CLIs the script drives — `op` (1Password),
 `gh` (GitHub), `infisical`, plus `jq`, `curl`, `openssl`, and optionally
