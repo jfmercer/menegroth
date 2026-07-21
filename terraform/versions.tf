@@ -6,7 +6,8 @@ terraform {
   # The organization comes from the TF_CLOUD_ORGANIZATION environment
   # variable (a GitHub Actions repository variable in CI).
   cloud {
-    organization = "jfmercer"
+    # organization intentionally omitted — sourced from TF_CLOUD_ORGANIZATION
+    # (CI repo variable; bootstrap.env locally). Keeps the org out of source.
     workspaces {
       name = "menegroth"
     }
