@@ -31,7 +31,7 @@ flowchart LR
         DEV[Your devices] ---|Tailscale SSH| SRV
         CI ---|ephemeral tailnet node| SRV
         subgraph SRV[Hetzner CX33 — no public inbound]
-            HARD[Hardened Ubuntu 24.04]
+            HARD[Hardened Ubuntu 26.04]
             VOL[/LUKS volume mounted at /data/]
             NC[NemoClaw / OpenShell sandboxes]
             NC --> VOL

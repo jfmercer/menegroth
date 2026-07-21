@@ -53,7 +53,7 @@ Only three GitHub secrets exist (`TF_API_TOKEN`, `INFISICAL_CLIENT_ID`, `INFISIC
 
 Full rationale and decision log: `docs/architecture.md`. The layers compose in this order:
 
-1. **Packer** (`packer/`) builds an Ubuntu 24.04 snapshot with a LUKS2-encrypted root from the Hetzner rescue system. Its initramfs embeds static tailscale binaries + dropbear (key-only, forced `cryptroot-unlock` command) so the machine can be unlocked remotely at boot.
+1. **Packer** (`packer/`) builds an Ubuntu 26.04 snapshot with a LUKS2-encrypted root from the Hetzner rescue system. Its initramfs embeds static tailscale binaries + dropbear (key-only, forced `cryptroot-unlock` command) so the machine can be unlocked remotely at boot.
 2. **Terraform** (`terraform/`) boots the server from the newest `fde=true` snapshot. `lifecycle.ignore_changes = [image, user_data]` means new snapshots do NOT auto-replace the server — roll deliberately with `terraform apply -replace=hcloud_server.menegroth`.
 3. **Ansible** (`ansible/site.yml`) provisions in strict role order: `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`. Later roles depend on earlier ones (e.g. `luks_volume` needs `/usr/local/bin/infisical-get`; `nemoclaw` asserts `/data` is mounted).
 4. **Mac unlock agent** (`macos/`) — a launchd job polling every 30 s. When the server reboots, its initramfs joins the tailnet as an ephemeral `tag:boot-unlock` node; the agent detects it, reads the passphrase from 1Password, and pipes it over SSH into `cryptroot-unlock`.

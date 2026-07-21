@@ -1,6 +1,6 @@
 # FDE image pipeline
 
-Builds the Hetzner snapshot the server boots from: Ubuntu 24.04 with a
+Builds the Hetzner snapshot the server boots from: Ubuntu 26.04 with a
 **LUKS2-encrypted root**, an unencrypted `/boot`, and an initramfs that joins
 the tailnet at the boot prompt so the Mac unlock agent (see `macos/`) can
 deliver the passphrase. See `docs/architecture.md` D2 for the design and

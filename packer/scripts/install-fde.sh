@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Runs inside the Hetzner RESCUE system (Packer `rescue = "linux64"`).
-# Installs Ubuntu 24.04 with a LUKS2-encrypted root, an unencrypted /boot,
+# Installs Ubuntu 26.04 with a LUKS2-encrypted root, an unencrypted /boot,
 # and an initramfs that joins the tailnet (static tailscaled) and accepts
 # the unlock passphrase over dropbear. The result is snapshotted by Packer.
 set -euo pipefail
 
 : "${LUKS_PASSPHRASE:?}" "${TS_BOOT_AUTHKEY:?}" "${MAC_UNLOCK_PUBKEY:?}"
-: "${UBUNTU_SERIES:=noble}" "${TAILSCALE_VERSION:?}" "${BOOT_HOSTNAME:=menegroth-server-boot}"
+: "${UBUNTU_SERIES:=resolute}" "${TAILSCALE_VERSION:?}" "${BOOT_HOSTNAME:=menegroth-server-boot}"
 
 DISK=/dev/sda
 BOOT_PART=${DISK}2
@@ -39,7 +39,10 @@ mkdir -p "$TARGET/boot"
 mount "$BOOT_PART" "$TARGET/boot"
 apt-get update -qq
 apt-get install -y -qq debootstrap
-debootstrap --arch=amd64 "$UBUNTU_SERIES" "$TARGET" http://archive.ubuntu.com/ubuntu
+# Pass the generic `gutsy` script explicitly: every Ubuntu suite script is a
+# symlink to it, so this succeeds even if the rescue system's debootstrap
+# predates the target suite and would otherwise abort with "No such script".
+debootstrap --arch=amd64 "$UBUNTU_SERIES" "$TARGET" http://archive.ubuntu.com/ubuntu gutsy
 
 echo "=== 4/8 Base system configuration"
 LUKS_UUID="$(blkid -s UUID -o value "$LUKS_PART")"

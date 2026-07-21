@@ -43,7 +43,9 @@ unattended reboots. Requirement changed to full disk encryption on all
 volumes, with the reboot problem solved by automated remote unlock.)*
 
 **Root volume:** the server boots from a custom snapshot (built by the
-`packer/` pipeline) with a LUKS2-encrypted root and unencrypted `/boot`. At
+`packer/` pipeline) with a LUKS2-encrypted root and unencrypted `/boot`. The
+base OS tracks the latest Ubuntu LTS — currently 26.04 "Resolute Raccoon"
+(`ubuntu_series = resolute`). At
 boot, the initramfs joins the tailnet as an **ephemeral** node
 (`menegroth-server-boot`, `tag:boot-unlock`) and runs dropbear (public-key only,
 forced command `cryptroot-unlock`, no forwarding). The Mac unlock agent

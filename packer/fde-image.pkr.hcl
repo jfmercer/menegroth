@@ -40,7 +40,7 @@ variable "mac_unlock_ssh_pubkey" {
 
 variable "ubuntu_series" {
   type    = string
-  default = "noble" # 24.04 — must match the fleet
+  default = "resolute" # 26.04 — must match the fleet
 }
 
 variable "tailscale_version" {
@@ -58,13 +58,13 @@ source "hcloud" "fde" {
   # Same type as production so the snapshot's disk geometry matches exactly.
   server_type   = "cx33"
   location      = "nbg1"
-  image         = "ubuntu-24.04" # only hosts the rescue boot; overwritten below
+  image         = "ubuntu-26.04" # only hosts the rescue boot; overwritten below
   rescue        = "linux64"      # build happens from the rescue system
   ssh_username  = "root"
-  snapshot_name = "fde-ubuntu-24.04-{{timestamp}}"
+  snapshot_name = "fde-ubuntu-26.04-{{timestamp}}"
   snapshot_labels = {
     fde  = "true"
-    os   = "ubuntu-24.04"
+    os   = "ubuntu-26.04"
     role = "menegroth-server-base"
   }
 }
