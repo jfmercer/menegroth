@@ -45,7 +45,7 @@ Five path-filtered workflows in `.github/workflows/`:
 - **packer.yml** — fmt/validate on PRs; image build only via manual dispatch.
 - **zizmor.yml** / **codeql.yml** — security analysis of the workflows themselves (SARIF → Security tab); zizmor also runs as a pre-commit hook. Baseline: clean at `--persona=pedantic` — keep it that way when touching workflows.
 
-Supply-chain rules (see `docs/architecture.md` D7): every `uses:` is pinned to a full commit SHA with the version as a trailing comment — **update actions only via the weekly grouped Dependabot PR, never by hand-editing a tag back in**; all checkouts set `persist-credentials: false`; `permissions:` are job-scoped with per-line comments.
+Supply-chain rules (see `docs/architecture.md` D7): every `uses:` is pinned to a full commit SHA with the version as a trailing comment — **update actions (and all other deps) only via the weekly grouped Renovate PR, never by hand-editing a tag back in**; all checkouts set `persist-credentials: false`; `permissions:` are job-scoped with per-line comments. Renovate (`renovate.yml` + `renovate.json5`, self-hosted, token from Infisical `/ci`) replaced Dependabot and covers every ecosystem — including the regex-tracked bare pins (`tailscale_version`, `nemoclaw_*`); it never auto-merges.
 
 Only three GitHub secrets exist (`TF_API_TOKEN`, `INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`); every other credential is fetched from Infisical at run time. Until the bootstrap checklist in the README is completed, workflow runs fail at the Infisical secret-fetch step — that is expected.
 

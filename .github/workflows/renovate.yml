@@ -1,0 +1,73 @@
+---
+name: Renovate
+
+# Self-hosted Renovate — keeps every dependency ecosystem fresh (GitHub
+# Actions, Terraform, Packer plugin, pre-commit hooks, Ansible Galaxy, and the
+# regex-tracked pins: tailscale, nemoclaw). Replaces Dependabot, whose only
+# reachable ecosystem here was github-actions. Config lives in renovate.json5.
+#
+# Trust stays in-repo: the runner authenticates to Infisical with the two `ci`
+# identity secrets, pulls the Renovate GitHub App credentials from /ci, and
+# mints a short-lived installation token — so no long-lived Renovate PAT is
+# ever a GitHub secret (the 3-secret invariant holds).
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC — mirrors the old Dependabot cadence
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Dry run (log changes, open no PRs)"
+        type: boolean
+        default: true
+
+permissions: {} # granted per-job below
+
+concurrency:
+  group: renovate # never two Renovate runs at once
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo; all writes use the App token, not GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Only the two `ci` identity secrets live in GitHub; the Renovate App's
+      # id + private key come from Infisical /ci at run time.
+      - name: Fetch Renovate App credentials from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      # Exchange the App id + private key for a short-lived installation token
+      # scoped to this repo (contents/PRs/workflows write — granted on the App).
+      - name: Mint Renovate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ env.RENOVATE_APP_ID }}
+          private-key: ${{ env.RENOVATE_APP_PRIVATE_KEY }}
+
+      - name: Renovate
+        uses: renovatebot/github-action@3064367f740a1a91cca218698a63902689cce200 # v46.1.20
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_AUTODISCOVER: "false"
+          # Manual dispatch defaults to a full dry run so coverage can be
+          # verified before Renovate is allowed to open PRs.
+          RENOVATE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun && 'full' || '' }}

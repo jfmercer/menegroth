@@ -14,7 +14,7 @@ secrets wiring, and the agent runtime — is defined in this repository.
 | Secrets | [Infisical Cloud](https://infisical.com/) | Source of truth for all credentials |
 | Agent runtime | [NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) | Agents in OpenShell sandboxes, routed inference |
 | CI/CD | GitHub Actions | Terraform plan/apply and Ansible runs; runners join the tailnet |
-| Pipeline security | [zizmor](https://zizmor.sh) + [CodeQL](https://codeql.github.com) | Workflow static analysis; SHA-pinned actions + Dependabot |
+| Pipeline security | [zizmor](https://zizmor.sh) + [CodeQL](https://codeql.github.com) | Workflow static analysis; SHA-pinned actions kept fresh by self-hosted [Renovate](https://docs.renovatebot.com) |
 
 ## Architecture
 
@@ -109,6 +109,7 @@ project can touch the `Menegroth` vault and nothing else.
 | **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
+| **GitHub** | a **Renovate GitHub App** (Contents + Pull requests + **Workflows**: write) installed on this repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` (→ `/ci`) |
 
 **Why two projects:** path-scoped access control within one project is a paid
 Infisical feature. On the free plan the access boundary is *project
@@ -156,6 +157,15 @@ op service-account create menegroth-bootstrap --vault "Menegroth:read_items,writ
 op service-account create menegroth-unlock   --vault "Menegroth:read_items"
 ```
 
+The **Renovate GitHub App** keeps every dependency current (`renovate.yml`
+runs it self-hosted). Create it at GitHub → **Settings → Developer settings →
+GitHub Apps → New**, grant repository **Contents: write, Pull requests: write,
+Workflows: write** (Workflows write lets it update the SHA pins inside
+`.github/workflows/`), install it on this repo, and generate a private key. Its
+**App ID** and **private key (PEM)** become the `/ci/RENOVATE_APP_*` secrets —
+the workflow trades them for a short-lived token, so no Renovate PAT ever lives
+in GitHub secrets.
+
 You do **not** create the ACL, the auth keys, the LUKS keys, the admin SSH key,
 or the 1Password items by hand — the script does all of that.
 
@@ -171,6 +181,7 @@ export MENEGROTH_OP_BOOTSTRAP_TOKEN=...  # menegroth-bootstrap service account
 export HCLOUD_TOKEN=... TS_API_TOKEN=... TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...
 export TF_API_TOKEN=... INFISICAL_CLIENT_ID=... INFISICAL_CLIENT_SECRET=...
 export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=...
+export RENOVATE_APP_ID=... RENOVATE_APP_PRIVATE_KEY="$(cat renovate-app.pem)"
 
 ./bootstrap.sh --dry-run              # preview — touches nothing
 ./bootstrap.sh                        # create/store everything (idempotent; safe to re-run)

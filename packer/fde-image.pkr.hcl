@@ -2,7 +2,7 @@ packer {
   required_plugins {
     hcloud = {
       source  = "github.com/hetznercloud/hcloud"
-      version = "~> 1.6"
+      version = "~> 1.7"
     }
   }
 }
@@ -44,8 +44,9 @@ variable "ubuntu_series" {
 }
 
 variable "tailscale_version" {
-  type    = string
-  default = "1.94.2" # static build embedded in the initramfs; bump via PR
+  type = string
+  # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
+  default = "1.98.9" # static build embedded in the initramfs; bump via PR
 }
 
 variable "boot_hostname" {

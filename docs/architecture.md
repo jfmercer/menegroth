@@ -114,6 +114,8 @@ separate server project (member: `server` identity) holds `/server`:
 /ci/TS_SERVER_AUTHKEY      Pre-authorized reusable auth key (tag:server) for the server's first tailnet join
 /ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
 /ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
+/ci/RENOVATE_APP_ID                Renovate GitHub App — exchanged in renovate.yml
+/ci/RENOVATE_APP_PRIVATE_KEY       for a short-lived installation token (no PAT in GitHub)
 /unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
                            the Mac's 1Password vault). NOT readable by the server identity.
 /unlock/MAC_UNLOCK_SSH_PUBKEY  Public half of the Mac unlock key (embedded at image build)
@@ -243,9 +245,19 @@ actions, ...), and **CodeQL** (`codeql.yml`, `actions` query pack — the repo's
 only CodeQL-supported language) adds semantic taint analysis, both uploading
 SARIF to the Security tab (free: public repo). Supply-chain hardening landed
 with them: every `uses:` is pinned to a **full commit SHA** (version as a
-trailing comment) with grouped weekly Dependabot PRs keeping pins current —
-never hand-edit a pin back to a tag — plus `persist-credentials: false` on all
-checkouts and job-scoped `permissions:`. A full pipeline audit (2026-07-18)
+trailing comment) — never hand-edit a pin back to a tag — plus
+`persist-credentials: false` on all checkouts and job-scoped `permissions:`.
+
+Freshness is kept by **self-hosted Renovate** (`renovate.yml` + `renovate.json5`),
+which replaced Dependabot: Dependabot only reached `github-actions`, leaving the
+pre-commit hooks, Packer plugin, Ansible Galaxy collections, and the bare string
+pins (`tailscale_version`, `nemoclaw_*`) to rot. Renovate covers all of them
+(regex custom managers for the bare pins), keeps `pinDigests` + a 7-day
+`minimumReleaseAge` cooldown + weekly grouping, and never auto-merges — majors
+and the SHA-pinned nemoclaw/tailscale bumps open as standalone PRs for review.
+The workflow holds no long-lived token: it authenticates to Infisical with the
+`ci` secrets, pulls a Renovate **GitHub App** id + key from `/ci`, and mints a
+short-lived installation token — so the 3-GitHub-secret invariant (D3) holds. A full pipeline audit (2026-07-18)
 recorded the findings, accepted risks (e.g. the Infisical whole-job-env
 export), and deferred recommendations (saved-plan handoff, deployment
 environments, `workflow_dispatch` re-run entry points); the report is kept
@@ -256,6 +268,12 @@ is not a security analyzer (no injection/secret-flow audits); zizmor + the
 CodeQL actions pack cover that ground and feed the Security tab's stateful
 triage. Manual review only was rejected: the tj-actions incident class is
 exactly what mutable-tag pins + unreviewed workflow edits invite.
+
+*Alternative considered (Renovate hosting):* the Mend-hosted Renovate GitHub App
+— zero workflow/token to maintain, but it grants a third-party app write access
+to the repo that gates production infra. Rejected to keep all trust in-repo and
+under zizmor/CodeQL, consistent with the dark-host, least-privilege posture; the
+cost is one self-hosted workflow and a GitHub App credential in Infisical.
 
 ### D8 — Free-plan access isolation: two Infisical projects
 

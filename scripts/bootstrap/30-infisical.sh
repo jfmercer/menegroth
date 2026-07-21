@@ -61,6 +61,10 @@ put /ci TS_OAUTH_CLIENT_ID           "${TS_OAUTH_CLIENT_ID:-}"
 put /ci TS_OAUTH_SECRET              "${TS_OAUTH_SECRET:-}"
 put /ci SERVER_IDENTITY_CLIENT_ID     "${SERVER_IDENTITY_CLIENT_ID:-}"
 put /ci SERVER_IDENTITY_CLIENT_SECRET "${SERVER_IDENTITY_CLIENT_SECRET:-}"
+# GitHub App the self-hosted Renovate workflow (.github/workflows/renovate.yml)
+# exchanges for a short-lived installation token — no long-lived PAT in GitHub.
+put /ci RENOVATE_APP_ID              "${RENOVATE_APP_ID:-}"
+put /ci RENOVATE_APP_PRIVATE_KEY     "${RENOVATE_APP_PRIVATE_KEY:-}"
 
 # ---- Generated --------------------------------------------------------------
 step "/server — generated data-volume LUKS key (server project)"
