@@ -8,6 +8,10 @@
 #
 # The two Tailscale auth keys are written by phase 20 (they are unrepeatable).
 # Idempotent: an existing secret is left unchanged (re-runs never rotate keys).
+#
+# Two projects (free-plan access isolation, D8): /ci and /unlock go to the
+# INFISICAL_PROJECT_ID project; /server goes to INFISICAL_SERVER_PROJECT_ID.
+# The put/gen_put/op_put helpers route by path automatically (see lib.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export BOOTSTRAP_DIR="$HERE"
@@ -59,7 +63,7 @@ put /ci SERVER_IDENTITY_CLIENT_ID     "${SERVER_IDENTITY_CLIENT_ID:-}"
 put /ci SERVER_IDENTITY_CLIENT_SECRET "${SERVER_IDENTITY_CLIENT_SECRET:-}"
 
 # ---- Generated --------------------------------------------------------------
-step "/server — generated data-volume LUKS key"
+step "/server — generated data-volume LUKS key (server project)"
 gen_put /server DATA_VOLUME_LUKS_KEY gen_secret
 
 # Gate on the PUBLIC key (what the Terraform wiring needs). Three cases:
@@ -91,6 +95,7 @@ else
 fi
 
 # ---- From 1Password (phase 10 created these) --------------------------------
+# /unlock -> CI/unlock project; /server/NTFY_TOPIC_URL -> server project.
 step "/unlock and /server — values from 1Password"
 op_put /unlock ROOT_LUKS_KEY        "op://$OP_VAULT/luks-passphrase/password"
 op_put /unlock MAC_UNLOCK_SSH_PUBKEY "op://$OP_VAULT/unlock-ssh-key/public key"

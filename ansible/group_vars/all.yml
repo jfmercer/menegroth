@@ -1,9 +1,12 @@
 ---
 admin_user: admin
 
-# Infisical project holding this server's secrets (ID is not sensitive).
-# REPLACE during bootstrap: Infisical console → project settings → Project ID.
-infisical_project_id: REPLACE_WITH_PROJECT_ID
+# Infisical *server* project holding this host's /server secrets (ID is not
+# sensitive). This is the dedicated project the `server` identity is a member
+# of — separate from the CI/unlock project — which is how the free plan
+# enforces that the server can't read /unlock (see docs/architecture.md D8).
+# REPLACE during bootstrap: Infisical console → the server project → Project ID.
+infisical_server_project_id: REPLACE_WITH_SERVER_PROJECT_ID
 
 # Window for unattended-upgrades automatic reboots (UTC). Chosen for
 # Mac-awake hours: the FDE root needs the Mac unlock agent (macos/) to

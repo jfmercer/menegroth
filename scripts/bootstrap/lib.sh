@@ -111,12 +111,27 @@ load_env() {
 # Writing needs a *user* login (`infisical login`) or INFISICAL_TOKEN — the
 # read-only `ci` identity cannot write. Values are passed on argv (a CLI
 # limitation); see the argv-exposure note in the bootstrap docs.
+#
+# On the free plan, path-scoped access control is a paid feature (see D8), so
+# the split-custody boundary is enforced by putting /server in a SEPARATE
+# project. Every helper routes by path: /server -> INFISICAL_SERVER_PROJECT_ID,
+# everything else (/ci, /unlock) -> INFISICAL_PROJECT_ID.
+infisical_project_for() { # infisical_project_for <path> -> project id
+  case "$1" in
+    /server*) echo "${INFISICAL_SERVER_PROJECT_ID:-}" ;;
+    *) echo "${INFISICAL_PROJECT_ID:-}" ;;
+  esac
+}
+
 infisical_ready() {
   require_cmd infisical "https://infisical.com/docs/cli/overview"
-  if [[ -z "${INFISICAL_PROJECT_ID:-}" || "${INFISICAL_PROJECT_ID:-}" == "REPLACE_WITH_PROJECT_ID" ]]; then
-    is_dry && { warn "INFISICAL_PROJECT_ID not set (ok for --dry-run)"; return 0; }
-    die "INFISICAL_PROJECT_ID is not set in bootstrap.env (Infisical console -> Project Settings -> Project ID)"
-  fi
+  local var
+  for var in INFISICAL_PROJECT_ID INFISICAL_SERVER_PROJECT_ID; do
+    if [[ -z "${!var:-}" || "${!var:-}" == REPLACE_WITH_* ]]; then
+      is_dry && { warn "$var not set (ok for --dry-run)"; continue; }
+      die "$var is not set in bootstrap.env (Infisical console -> Project Settings -> Project ID)"
+    fi
+  done
 }
 
 infisical_set() { # infisical_set <path> <KEY> <value>
@@ -125,13 +140,13 @@ infisical_set() { # infisical_set <path> <KEY> <value>
     return 0
   fi
   infisical secrets set "$2=$3" \
-    --projectId="$INFISICAL_PROJECT_ID" --env="$INFISICAL_ENV" \
+    --projectId="$(infisical_project_for "$1")" --env="$INFISICAL_ENV" \
     --path="$1" --domain="$INFISICAL_DOMAIN" >/dev/null
 }
 
 infisical_get() { # infisical_get <path> <KEY> -> value on stdout ("" if absent)
   infisical secrets get "$2" \
-    --projectId="${INFISICAL_PROJECT_ID:-}" --env="$INFISICAL_ENV" \
+    --projectId="$(infisical_project_for "$1")" --env="$INFISICAL_ENV" \
     --path="$1" --domain="$INFISICAL_DOMAIN" --plain 2>/dev/null || true
 }
 

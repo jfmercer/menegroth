@@ -99,9 +99,12 @@ server needs secrets to provision the thing that serves secrets) and costs
 ~2 GB RAM. Infisical Cloud avoids both. Revisit self-hosting on a *separate*
 box later if data sovereignty becomes a requirement.
 
-Secret layout in the `menegroth` project, `prod` environment:
+Secret layout across **two** projects, `prod` environment (see D8 for why two).
+The `menegroth` project (member: `ci` identity) holds `/ci` and `/unlock`; a
+separate server project (member: `server` identity) holds `/server`:
 
 ```
+# Project `menegroth` — read by the `ci` identity (CI workflows, by slug)
 /ci/HCLOUD_TOKEN           Hetzner API token (used by Terraform in CI)
 /ci/TS_OAUTH_CLIENT_ID     Tailscale OAuth client (CI runner tailnet join)
 /ci/TS_OAUTH_SECRET
@@ -109,6 +112,13 @@ Secret layout in the `menegroth` project, `prod` environment:
 /ci/TS_SERVER_AUTHKEY      Pre-authorized reusable auth key (tag:server) for the server's first tailnet join
 /ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
 /ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
+/unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
+                           the Mac's 1Password vault). NOT readable by the server identity.
+/unlock/MAC_UNLOCK_SSH_PUBKEY  Public half of the Mac unlock key (embedded at image build)
+/unlock/TS_BOOT_AUTHKEY    Ephemeral pre-authorized tailnet key for the initramfs
+                           boot node (embedded at image build time)
+
+# Server project (separate) — read by the `server` identity only
 /server/DATA_VOLUME_LUKS_KEY
 /server/NTFY_TOPIC_URL     Alerting destination
                            (LLM provider keys also go under /server if/when
@@ -116,19 +126,17 @@ Secret layout in the `menegroth` project, `prod` environment:
                            nemoclaw role's nemoclaw_provider_key_* vars)
 /server/RESTIC_REPOSITORY  (optional) restic backup target + password,
 /server/RESTIC_PASSWORD    only if ops_restic_enabled
-/unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
-                           the Mac's 1Password vault). NOT readable by the server identity.
-/unlock/TS_BOOT_AUTHKEY    Ephemeral pre-authorized tailnet key for the initramfs
-                           boot node (embedded at image build time)
 ```
 
 The `/unlock` path is readable by the CI identity (image builds) and the
 human — **never** by the `server` identity: the server must not be able to
-unlock itself.
+unlock itself. On the free plan this is enforced by project separation, not
+path ACLs — see D8.
 
-Two machine identities (universal auth): `ci` reads `/ci/*`, `server` reads
-`/server/*`. GitHub repo secrets contain only the `ci` identity credentials
-plus `TF_API_TOKEN`.
+Two machine identities (universal auth): `ci` is a member of the `menegroth`
+project (reads `/ci` + `/unlock`), `server` is a member of the server project
+(reads `/server` only). GitHub repo secrets contain only the `ci` identity
+credentials plus `TF_API_TOKEN`.
 
 ### D4 — Network: fully dark host
 
@@ -246,6 +254,29 @@ is not a security analyzer (no injection/secret-flow audits); zizmor + the
 CodeQL actions pack cover that ground and feed the Security tab's stateful
 triage. Manual review only was rejected: the tj-actions incident class is
 exactly what mutable-tag pins + unreviewed workflow edits invite.
+
+### D8 — Free-plan access isolation: two Infisical projects
+
+The split-custody invariant (D3) requires the `server` identity to read
+`/server` but **never** `/unlock`. Scoping an identity to specific secret
+*paths* within one project needs Infisical RBAC / custom roles — a paid tier.
+On the free plan the only access boundary is **project membership** with the
+built-in roles (a member sees all of a project's paths). So the isolation is
+structural: `/server` lives in a **separate project** whose only member is the
+`server` identity, while `/ci` and `/unlock` stay in the `menegroth` project
+whose only machine member is `ci`. Because `ci` legitimately reads both `/ci`
+and `/unlock`, only one project needs splitting off, keeping it to two projects
+(free tier allows three). The CI workflows are unaffected — they reference the
+`menegroth` project by slug and read only `/ci`/`/unlock`; only the host's
+`server`-identity project ID (`ansible/group_vars/all.yml`) points at the new
+project. Bootstrap routes writes by path (`INFISICAL_SERVER_PROJECT_ID` for
+`/server`, `INFISICAL_PROJECT_ID` otherwise; see `scripts/bootstrap/lib.sh`).
+
+*Alternatives considered:* (a) a single project with a path-scoped custom role —
+rejected: custom roles are Enterprise-tier, a recurring cost hard to justify for
+a solo project; (b) a single project with both identities as members — rejected:
+built-in roles can't stop the `server` identity from reading `/unlock`, breaking
+the one invariant this whole design exists to hold.
 
 ## Provisioning flow
 

@@ -34,7 +34,7 @@ cd scripts/bootstrap && shellcheck -x ./*.sh && ./bootstrap.sh --dry-run
 
 Never run `terraform apply` or `packer build` locally. Apply happens on merge to master; Packer builds are `workflow_dispatch` only (each build boots a paid temporary server).
 
-The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architecture.md` D6): idempotent phase scripts (`10-onepassword` → `20-tailscale` → `30-infisical` → `40-github`) driven by `bootstrap.sh`, plus `preflight.sh` which validates the whole tenant before the first Packer build. The two public keys (`admin_ssh_public_key`, `mac_unlock_ssh_pubkey`) live in Infisical, **not** source — CI injects them as `TF_VAR_`/`PKR_VAR_`, so a local `terraform plan` needs `TF_VAR_admin_ssh_public_key` exported (`validate` does not). The only remaining source placeholder is `REPLACE_WITH_PROJECT_ID` in `ansible/group_vars/all.yml`; the `validation` blocks on the two key variables (format `^ssh-`) must stay intact.
+The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architecture.md` D6): idempotent phase scripts (`10-onepassword` → `20-tailscale` → `30-infisical` → `40-github`) driven by `bootstrap.sh`, plus `preflight.sh` which validates the whole tenant before the first Packer build. The two public keys (`admin_ssh_public_key`, `mac_unlock_ssh_pubkey`) live in Infisical, **not** source — CI injects them as `TF_VAR_`/`PKR_VAR_`, so a local `terraform plan` needs `TF_VAR_admin_ssh_public_key` exported (`validate` does not). The only remaining source placeholder is `REPLACE_WITH_SERVER_PROJECT_ID` (the `infisical_server_project_id`) in `ansible/group_vars/all.yml`; the `validation` blocks on the two key variables (format `^ssh-`) must stay intact.
 
 ## CI model
 
@@ -60,7 +60,7 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 ### Security invariants (do not weaken)
 
-- **Split key custody:** the `server` Infisical identity can read `/server/*` only. The root LUKS passphrase lives in 1Password (primary) and Infisical `/unlock/*` (recovery) — paths the server identity must **never** be granted. The server cannot unlock itself.
+- **Split key custody:** the `server` Infisical identity can read `/server/*` only. The root LUKS passphrase lives in 1Password (primary) and Infisical `/unlock/*` (recovery) — paths the server identity must **never** be granted. The server cannot unlock itself. On the free plan this is enforced by putting `/server` in a **separate Infisical project** (member: `server` identity) from `/ci`+`/unlock` (member: `ci` identity), since path-scoped roles are paid — see `docs/architecture.md` D8. Never add the `server` identity to the CI/unlock project.
 - **Dark host:** the Hetzner firewall has no inbound rules (the `bootstrap_admin_ip_cidr` variable opens SSH only during initial buildout); ufw mirrors default-deny with `tailscale0` allowed.
 - **Secrets never touch disk:** keys are streamed via stdin (`--key-file=-`), secret-bearing Ansible tasks use `no_log`, and the Mac agent materializes its SSH key only in a trap-cleaned mktemp dir.
 - **Deliberate pins:** the NemoClaw installer is fetched by commit SHA (`nemoclaw_install_commit`, paired with `nemoclaw_install_tag` in `ansible/roles/nemoclaw/defaults/main.yml` — bump both together); `tailscale_version` in Packer pins the initramfs binaries.
@@ -77,4 +77,4 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 - History is phase-per-commit (Phase 0–12), each leaving the system deployable; keep commits self-contained in that spirit.
 - `docs/architecture.md` is a decision log (D1–D5) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
-- The Infisical secret layout (`/ci`, `/server`, `/unlock` in project `menegroth`, env `prod`) is documented in `docs/architecture.md` D3 — new secrets go in the least-privileged path.
+- The Infisical secret layout is documented in `docs/architecture.md` D3/D8 — `/ci` and `/unlock` in project `menegroth` (env `prod`), `/server` in a separate server project. New secrets go in the least-privileged path; bootstrap routes `/server` writes to `INFISICAL_SERVER_PROJECT_ID` automatically (`scripts/bootstrap/lib.sh`).

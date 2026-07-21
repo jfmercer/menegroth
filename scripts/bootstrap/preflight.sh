@@ -50,9 +50,16 @@ if command -v infisical >/dev/null 2>&1 && [[ -n "${INFISICAL_PROJECT_ID:-}" && 
   # shellcheck disable=SC2086
   check_path /ci $CI_KEYS
   # shellcheck disable=SC2086
-  check_path /server $SERVER_KEYS
-  # shellcheck disable=SC2086
   check_path /unlock $UNLOCK_KEYS
+  # /server lives in a SEPARATE project (D8); check_path routes it via
+  # INFISICAL_SERVER_PROJECT_ID. Guard it so an unset id is a clear FAIL, not a
+  # confusing "missing/empty" on every /server key.
+  if [[ -z "${INFISICAL_SERVER_PROJECT_ID:-}" || "${INFISICAL_SERVER_PROJECT_ID:-}" == "REPLACE_WITH_SERVER_PROJECT_ID" ]]; then
+    fail "INFISICAL_SERVER_PROJECT_ID unset — cannot verify /server (set it in bootstrap.env)"
+  else
+    # shellcheck disable=SC2086
+    check_path /server $SERVER_KEYS
+  fi
 else
   warn "skipped — infisical not installed/logged in, or INFISICAL_PROJECT_ID unset"
 fi

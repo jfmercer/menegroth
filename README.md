@@ -105,21 +105,34 @@ project can touch the `Menegroth` vault and nothing else.
 | Service | Create | Becomes |
 |---|---|---|
 | **HCP Terraform** | org + workspace `menegroth`, execution mode **Local**; a user/team API token | `TF_API_TOKEN` (GitHub) |
-| **Infisical** (EU, `eu.infisical.com`) | project `menegroth`/`prod` + two universal-auth machine identities (below) | GitHub secrets + `/ci` |
+| **Infisical** (EU, `eu.infisical.com`) | **two** projects (`menegroth` + a server project) + two universal-auth machine identities (below) | GitHub secrets + `/ci` |
 | **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
 
-The two Infisical identities are org-level objects (create each → give it
-Universal Auth → add to the project with a path-scoped role):
+**Why two projects:** path-scoped access control within one project is a paid
+Infisical feature. On the free plan the access boundary is *project
+membership*, so the split-custody rule (the `server` identity must never read
+`/unlock`) is enforced structurally — `/server` lives in its own project. See
+`docs/architecture.md` D8. Create:
 
-- **`ci`** — read `/ci/*` **and `/unlock/*`** (the Packer build reads `/unlock`
-  as this identity). Its Client ID/Secret become the GitHub secrets
-  `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`.
-- **`server`** — read `/server/*` **only**; never `/unlock/*` (that is what
-  stops the server from unlocking its own root). Its Client ID/Secret go into
-  `/ci/SERVER_IDENTITY_CLIENT_ID` / `_SECRET` (the script stores them), where
-  the Ansible `infisical` role later delivers them onto the host.
+- **`menegroth` project** (`prod` env) — holds `/ci` + `/unlock`. Note its
+  Project ID → `INFISICAL_PROJECT_ID`. The workflows reference it by slug.
+- **a server project** (any name, `prod` env) — holds `/server`. Note its
+  Project ID → `INFISICAL_SERVER_PROJECT_ID` (and `ansible/group_vars/all.yml`).
+
+The two Infisical identities are org-level objects (create each → give it
+Universal Auth → add it as a member of **only** its project, with a built-in
+**read** role):
+
+- **`ci`** — member of the **`menegroth`** project only (reads `/ci` + `/unlock`;
+  the Packer build reads `/unlock` as this identity). Its Client ID/Secret
+  become the GitHub secrets `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`.
+- **`server`** — member of the **server project only**; **never** added to
+  `menegroth` (that membership is what would let it read `/unlock` and unlock
+  its own root). Its Client ID/Secret go into `/ci/SERVER_IDENTITY_CLIENT_ID` /
+  `_SECRET` (the script stores them), where the Ansible `infisical` role later
+  delivers them onto the host.
 
 The two 1Password **service accounts** confine the project to the `Menegroth`
 vault — 1Password enforces the scope server-side, and service accounts can
@@ -151,7 +164,7 @@ or the 1Password items by hand — the script does all of that.
 ```bash
 cd scripts/bootstrap
 cp bootstrap.env.example bootstrap.env
-$EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID (+ any overrides)
+$EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID + INFISICAL_SERVER_PROJECT_ID (+ overrides)
 
 # Provide the seed secrets in your shell (see the SEEDS block in the .env):
 export MENEGROTH_OP_BOOTSTRAP_TOKEN=...  # menegroth-bootstrap service account
