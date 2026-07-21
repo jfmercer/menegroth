@@ -1,0 +1,34 @@
+---
+# NemoClaw is alpha software — the installer ref is pinned and bumped
+# deliberately via PR, never floated on the "lkg" default.
+nemoclaw_install_tag: v0.0.89
+# The commit that tag points to. The installer is fetched by commit, not tag:
+# tags can be re-pointed after a repo compromise; commit SHAs cannot. Bump
+# BOTH together — resolve with:
+#   git ls-remote https://github.com/NVIDIA/NemoClaw 'v0.0.89^{}'
+nemoclaw_install_commit: 1143aa5cce77f3bad1b3b5588bd7fddbe438237e
+
+nemoclaw_user: nemoclaw
+nemoclaw_uid: 1500
+# Home on the encrypted volume: all agent state, workspaces, and sandbox
+# data land on /data without guessing NemoClaw's internal paths.
+nemoclaw_home: /data/nemoclaw
+
+# openclaw (default) | hermes | deepagents
+nemoclaw_agent: openclaw
+# Inference provider: anthropic | openai | openrouter | gemini | routed | ...
+nemoclaw_provider: anthropic
+# Optional inference credential. To enable: store the provider's API key in
+# Infisical under /server, then set both vars — the secret name and the env
+# var the provider expects (e.g. ANTHROPIC_API_KEY for anthropic). Empty =
+# the installer runs with no provider key exported.
+nemoclaw_provider_key_secret: ""
+nemoclaw_provider_key_env: ""
+# suggested = NemoClaw's hardened default network policy
+nemoclaw_policy_mode: suggested
+nemoclaw_sandbox_name: main
+
+# Host-level RAM backstop for everything the nemoclaw user runs (the
+# blueprint should also set per-sandbox limits; this catches runaways).
+nemoclaw_memory_high: 6G
+nemoclaw_memory_max: 7G

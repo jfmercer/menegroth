@@ -1,0 +1,54 @@
+---
+- name: Install Tailscale signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add Tailscale apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main
+    filename: tailscale
+    state: present
+
+- name: Install tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Enable tailscaled
+  ansible.builtin.service:
+    name: tailscaled
+    state: started
+    enabled: true
+
+- name: Read Tailscale backend state
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Join the tailnet (first run only)
+  ansible.builtin.command: >-
+    tailscale up
+    --auth-key={{ tailscale_authkey }}
+    --hostname={{ tailscale_hostname }}
+    --ssh
+  when: (tailscale_status.stdout | from_json).BackendState | default('NoState') != 'Running'
+  no_log: true # never print the auth key
+  changed_when: true
+
+- name: Ensure Tailscale SSH stays enabled
+  ansible.builtin.command: tailscale set --ssh
+  changed_when: false
+
+- name: Allow all traffic in from the tailnet interface
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: tailscale0

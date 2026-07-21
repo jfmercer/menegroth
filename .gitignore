@@ -1,0 +1,43 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.auto.tfvars
+terraform.tfvars
+
+# Ansible
+*.retry
+ansible/.vault_pass
+ansible/collections/
+
+# Secrets — never commit these patterns
+*.pem
+*.key
+!**/keys/*.pub
+.env
+.env.*
+*.credential
+infisical.json
+
+# Bootstrap — local config (may reference seed locations); never the .example
+scripts/bootstrap/bootstrap.env
+
+# Python / uv — the interpreter + lockfile are pinned in pyproject.toml +
+# uv.lock (committed); the resolved venv and caches are not.
+.venv/
+__pycache__/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

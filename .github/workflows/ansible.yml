@@ -1,0 +1,88 @@
+---
+name: Ansible
+
+on:
+  pull_request:
+    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+  push:
+    branches: [master]
+    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ansible
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: ansible
+
+jobs:
+  lint:
+    name: Lint + syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # uv installs the locked toolchain (ansible-core + ansible-lint) and the
+      # pinned Python (.python-version) — reproducible, no loose `pip install`.
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
+      - name: Install collections
+        run: uv run ansible-galaxy collection install -r requirements.yml
+      - name: ansible-lint
+        run: uv run ansible-lint
+      - name: Syntax check
+        run: uv run ansible-playbook site.yml --syntax-check
+
+  provision:
+    name: Provision over tailnet
+    if: github.event_name == 'push'
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      # The server has zero public inbound ports; the runner joins the
+      # tailnet as an ephemeral node tagged tag:ci and connects over
+      # Tailscale SSH (authorized by the tailnet ACL "ssh" section).
+      - name: Join tailnet
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          version: latest
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
+      - name: Install collections
+        run: uv run ansible-galaxy collection install -r requirements.yml
+
+      - name: Run playbook
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False" # host keys are vouched by Tailscale SSH
+        run: uv run ansible-playbook site.yml

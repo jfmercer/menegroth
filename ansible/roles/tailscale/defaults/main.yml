@@ -1,0 +1,6 @@
+---
+tailscale_hostname: "{{ inventory_hostname }}"
+# Pre-authorized, reusable auth key tagged tag:server, stored in Infisical
+# at /ci/TS_SERVER_AUTHKEY and exported as an env var for the play. Only
+# consulted when the node is not yet joined.
+tailscale_authkey: "{{ lookup('ansible.builtin.env', 'TS_SERVER_AUTHKEY', default='') }}"

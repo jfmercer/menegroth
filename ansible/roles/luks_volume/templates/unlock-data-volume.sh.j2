@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Unlock and mount the LUKS data volume. Idempotent; runs at boot via
+# data-volume.service. The key is fetched from Infisical and piped straight
+# into cryptsetup — it never touches a filesystem.
+set -euo pipefail
+
+device="$(ls {{ luks_volume_device_glob }})"
+mapper="{{ luks_volume_mapper }}"
+mount_point="{{ luks_volume_mount }}"
+
+if mountpoint -q "$mount_point"; then
+  exit 0
+fi
+
+if [[ ! -e "/dev/mapper/$mapper" ]]; then
+  /usr/local/bin/infisical-get "{{ luks_volume_key_secret }}" \
+    | cryptsetup open "$device" "$mapper" --key-file=-
+fi
+
+mount -o {{ luks_volume_mount_opts }} "/dev/mapper/$mapper" "$mount_point"

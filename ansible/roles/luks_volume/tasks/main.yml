@@ -1,0 +1,106 @@
+---
+- name: Install cryptsetup
+  ansible.builtin.apt:
+    name: cryptsetup
+    state: present
+
+- name: Locate the Hetzner data volume device
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls {{ luks_volume_device_glob }} 2>/dev/null
+  args:
+    executable: /bin/bash
+  register: luks_volume_device_scan
+  changed_when: false
+
+- name: Assert exactly one data volume is attached
+  ansible.builtin.assert:
+    that: luks_volume_device_scan.stdout_lines | length == 1
+    fail_msg: >-
+      Expected exactly one Hetzner volume matching
+      {{ luks_volume_device_glob }}, found:
+      {{ luks_volume_device_scan.stdout_lines }}
+
+- name: Set device fact
+  ansible.builtin.set_fact:
+    luks_volume_device: "{{ luks_volume_device_scan.stdout_lines[0] }}"
+
+- name: Check whether the device is already a LUKS container
+  ansible.builtin.command: cryptsetup isLuks {{ luks_volume_device }}
+  register: luks_volume_is_luks
+  changed_when: false
+  failed_when: luks_volume_is_luks.rc not in [0, 1]
+
+- name: First-time format
+  when: luks_volume_is_luks.rc == 1
+  block:
+    - name: Refuse to format a device that already has data on it
+      ansible.builtin.command: blkid -p {{ luks_volume_device }}
+      register: luks_volume_blkid
+      changed_when: false
+      # blkid -p exits 2 when no filesystem/signature is detected — the only
+      # state we will format. Anything else means a human must look first.
+      failed_when: luks_volume_blkid.rc != 2
+
+    - name: LUKS2-format the volume (key streamed from Infisical, never on disk)
+      ansible.builtin.shell: |
+        set -o pipefail
+        /usr/local/bin/infisical-get {{ luks_volume_key_secret }} \
+          | cryptsetup luksFormat --type luks2 --batch-mode {{ luks_volume_device }} --key-file=-
+      args:
+        executable: /bin/bash
+      no_log: true
+      changed_when: true
+
+    - name: Open the new container
+      ansible.builtin.shell: |
+        set -o pipefail
+        /usr/local/bin/infisical-get {{ luks_volume_key_secret }} \
+          | cryptsetup open {{ luks_volume_device }} {{ luks_volume_mapper }} --key-file=-
+      args:
+        executable: /bin/bash
+      no_log: true
+      changed_when: true
+
+    - name: Create filesystem
+      community.general.filesystem:
+        fstype: "{{ luks_volume_fs }}"
+        dev: /dev/mapper/{{ luks_volume_mapper }}
+
+- name: Create mount point
+  ansible.builtin.file:
+    path: "{{ luks_volume_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install unlock-data-volume script
+  ansible.builtin.template:
+    src: unlock-data-volume.sh.j2
+    dest: /usr/local/bin/unlock-data-volume
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install data-volume systemd unit
+  ansible.builtin.template:
+    src: data-volume.service.j2
+    dest: /etc/systemd/system/data-volume.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Flush handlers so the unit is loadable
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start data-volume unit
+  ansible.builtin.systemd_service:
+    name: data-volume.service
+    enabled: true
+    state: started
+
+- name: Verify /data is mounted
+  ansible.builtin.command: mountpoint -q {{ luks_volume_mount }}
+  changed_when: false

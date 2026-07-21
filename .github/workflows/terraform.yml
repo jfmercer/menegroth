@@ -1,0 +1,116 @@
+---
+name: Terraform
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [master]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+
+permissions: {} # granted per-job below
+
+concurrency:
+  group: terraform # one plan/apply at a time — state lock friendliness
+  cancel-in-progress: false
+
+env:
+  # HCP Terraform organization (state-only backend). Set as a repository
+  # variable: Settings → Secrets and variables → Actions → Variables.
+  TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+  TF_IN_AUTOMATION: "true"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  terraform:
+    name: Plan / apply
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo
+      pull-requests: write # plan-as-PR-comment step
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Only two credentials live in GitHub secrets: the HCP Terraform token
+      # and the Infisical "ci" machine identity. Everything else (Hetzner
+      # token, ...) is pulled from Infisical here.
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      # The Infisical action exports secrets under their own UPPER_SNAKE names;
+      # map the admin public key to the (case-sensitive) Terraform variable.
+      - name: Map admin SSH key to a Terraform variable
+        run: echo "TF_VAR_admin_ssh_public_key=$ADMIN_SSH_PUBLIC_KEY" >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
+      - name: tflint
+        run: tflint --format compact
+
+      - name: terraform plan
+        id: plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -no-color -input=false -out=tfplan
+        continue-on-error: true
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PLAN_STDOUT: ${{ steps.plan.outputs.stdout }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          script: |
+            const outcome = process.env.PLAN_OUTCOME;
+            const plan = process.env.PLAN_STDOUT.length > 60000
+              ? process.env.PLAN_STDOUT.slice(0, 60000) + "\n… (truncated)"
+              : process.env.PLAN_STDOUT;
+            const body = [
+              `### Terraform plan — \`${outcome}\``,
+              "<details><summary>Show plan</summary>",
+              "",
+              "```terraform",
+              plan,
+              "```",
+              "</details>",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if plan failed
+        if: github.event_name == 'pull_request' && steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: terraform apply
+        if: github.event_name == 'push'
+        run: terraform apply -input=false -auto-approve

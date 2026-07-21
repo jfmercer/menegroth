@@ -1,0 +1,86 @@
+---
+name: Packer FDE image
+
+on:
+  workflow_dispatch: {} # building costs a temporary cx33 — trigger deliberately
+  pull_request:
+    paths: ["packer/**", ".github/workflows/packer.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packer
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: packer
+
+jobs:
+  validate:
+    name: Validate template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
+      - run: packer init .
+      - run: packer fmt -check .
+      - name: packer validate
+        env:
+          # The hcloud plugin's validate step only checks that a token is
+          # present — no API call is made, so a dummy value is fine here.
+          HCLOUD_TOKEN: dummy-for-validate
+        run: >
+          packer validate
+          -var root_luks_passphrase=placeholder
+          -var boot_tailscale_authkey=placeholder
+          -var 'mac_unlock_ssh_pubkey=ssh-ed25519 AAAAplaceholder ci-validate'
+          .
+
+  build:
+    name: Build FDE image
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # HCLOUD_TOKEN comes from /ci; the LUKS passphrase and boot auth key
+      # live under /unlock (readable by the CI identity for builds only).
+      - name: Fetch CI secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - name: Fetch unlock secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /unlock
+          export-type: env
+
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
+      - run: packer init .
+      - name: packer build
+        env:
+          PKR_VAR_root_luks_passphrase: ${{ env.ROOT_LUKS_KEY }}
+          PKR_VAR_boot_tailscale_authkey: ${{ env.TS_BOOT_AUTHKEY }}
+          PKR_VAR_mac_unlock_ssh_pubkey: ${{ env.MAC_UNLOCK_SSH_PUBKEY }}
+        run: packer build .

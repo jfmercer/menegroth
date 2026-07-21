@@ -1,0 +1,44 @@
+---
+- name: Add Infisical CLI apt repository (one-shot setup script)
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    curl -1sLf https://artifacts-cli.infisical.com/setup.deb.sh | bash
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/sources.list.d/infisical-infisical-cli.list
+  register: infisical_repo_setup
+
+- name: Install Infisical CLI
+  ansible.builtin.apt:
+    name: infisical
+    state: present
+    update_cache: "{{ infisical_repo_setup is changed }}"
+
+- name: Create Infisical config directory
+  ansible.builtin.file:
+    path: /etc/infisical
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install machine identity credentials
+  ansible.builtin.template:
+    src: identity.env.j2
+    dest: /etc/infisical/identity.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true # template contains the client secret
+
+- name: Install infisical-get helper
+  ansible.builtin.template:
+    src: infisical-get.sh.j2
+    dest: /usr/local/bin/infisical-get
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Verify the server identity can read its secret path
+  ansible.builtin.command: /usr/local/bin/infisical-get --check
+  changed_when: false

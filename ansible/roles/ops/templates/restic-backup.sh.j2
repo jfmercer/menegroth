@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Nightly restic backup of the encrypted /data volume. Repository and
+# password come from Infisical; restic encrypts client-side, so the backup
+# target never sees plaintext either.
+set -euo pipefail
+umask 077
+
+RESTIC_REPOSITORY="$(/usr/local/bin/infisical-get RESTIC_REPOSITORY)"
+RESTIC_PASSWORD="$(/usr/local/bin/infisical-get RESTIC_PASSWORD)"
+export RESTIC_REPOSITORY RESTIC_PASSWORD
+
+restic snapshots >/dev/null 2>&1 || restic init
+
+restic backup {{ luks_volume_mount | default('/data') }} \
+  --exclude '{{ luks_volume_mount | default('/data') }}/**/.cache'
+
+restic forget --prune \
+  --keep-daily {{ ops_restic_keep_daily }} \
+  --keep-weekly {{ ops_restic_keep_weekly }}

@@ -1,0 +1,11 @@
+---
+- name: Provision the Menegroth server
+  hosts: menegroth_server
+  become: true
+  roles:
+    - harden
+    - tailscale
+    - infisical
+    - luks_volume
+    - nemoclaw
+    - ops

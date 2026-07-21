@@ -1,0 +1,16 @@
+---
+- name: Install hardened sshd configuration
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -T -f %s"
+  notify: Restart ssh
+
+- name: Remove cloud-init bootstrap sshd snippet (superseded by hardening config)
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/00-bootstrap.conf
+    state: absent
+  notify: Restart ssh

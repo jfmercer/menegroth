@@ -1,0 +1,15 @@
+// {{ ansible_managed }}
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+    "${distro_id}:${distro_codename}-updates";
+};
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+// Reboots require the Mac unlock agent (FDE root): the window is set to
+// Mac-awake hours. If the Mac is offline the server waits at the unlock
+// prompt and the agent alerts + unlocks when it comes back.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ harden_reboot_time }}";

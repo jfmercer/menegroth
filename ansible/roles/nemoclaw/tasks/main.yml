@@ -1,0 +1,55 @@
+---
+- name: Require the encrypted volume to be mounted
+  ansible.builtin.command: mountpoint -q /data
+  changed_when: false
+
+- name: Create nemoclaw user (home on the encrypted volume)
+  ansible.builtin.user:
+    name: "{{ nemoclaw_user }}"
+    uid: "{{ nemoclaw_uid }}"
+    home: "{{ nemoclaw_home }}"
+    shell: /bin/bash
+    system: false
+    create_home: true
+
+- name: Enable linger so always-on agents survive without a login session
+  ansible.builtin.command: loginctl enable-linger {{ nemoclaw_user }}
+  args:
+    creates: /var/lib/systemd/linger/{{ nemoclaw_user }}
+
+- name: Ensure slice drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/user-{{ nemoclaw_uid }}.slice.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Cap nemoclaw user slice memory (OOM backstop for the 8 GB host)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/user-{{ nemoclaw_uid }}.slice.d/50-memory.conf
+    content: |
+      [Slice]
+      MemoryHigh={{ nemoclaw_memory_high }}
+      MemoryMax={{ nemoclaw_memory_max }}
+      TasksMax=2048
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Install nemoclaw-install wrapper
+  ansible.builtin.template:
+    src: nemoclaw-install.sh.j2
+    dest: /usr/local/bin/nemoclaw-install
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Run the pinned NemoClaw installer (first run only)
+  ansible.builtin.command: /usr/local/bin/nemoclaw-install
+  args:
+    creates: "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
+  # The wrapper exports the provider API key (when configured) into the
+  # installer env.
+  no_log: true

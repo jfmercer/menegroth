@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Lightweight health checks; alerts to ntfy only when something is wrong.
+set -uo pipefail
+
+problems=()
+
+# Encrypted volume mounted?
+mountpoint -q {{ luks_volume_mount | default('/data') }} \
+  || problems+=("/data is NOT mounted — data-volume.service failed?")
+
+# Disk usage
+while read -r usep mnt; do
+  usep="${usep%\%}"
+  if (( usep >= {{ ops_disk_alert_percent }} )); then
+    problems+=("Disk ${mnt} at ${usep}%")
+  fi
+done < <(df --output=pcent,target -x tmpfs -x devtmpfs -x overlay | tail -n +2)
+
+# Failed systemd units
+failed="$(systemctl --failed --no-legend --plain | awk '{print $1}')"
+[[ -n "$failed" ]] && problems+=("Failed units: $(tr '\n' ' ' <<<"$failed")")
+
+# Tailscale up?
+state="$(tailscale status --json 2>/dev/null | jq -r .BackendState)"
+[[ "$state" == "Running" ]] || problems+=("Tailscale backend state: ${state:-unknown}")
+
+# Memory pressure on the nemoclaw slice (agents being throttled/killed)
+if [[ -f /sys/fs/cgroup/user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice/memory.events ]]; then
+  ooms="$(awk '/oom_kill/ {print $2}' /sys/fs/cgroup/user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice/memory.events)"
+  [[ "${ooms:-0}" -gt 0 ]] && problems+=("nemoclaw slice oom_kill count: ${ooms}")
+fi
+
+(( ${#problems[@]} == 0 )) && exit 0
+
+ntfy_url="$(/usr/local/bin/infisical-get NTFY_TOPIC_URL 2>/dev/null)" || {
+  echo "healthcheck: problems found but could not fetch NTFY_TOPIC_URL" >&2
+  printf ' - %s\n' "${problems[@]}" >&2
+  exit 1
+}
+
+printf -v body ' - %s\n' "${problems[@]}"
+curl -fsS -m 15 \
+  -H "Title: $(hostname) health alert" \
+  -H "Priority: high" \
+  -H "Tags: warning" \
+  -d "$body" \
+  "$ntfy_url" >/dev/null

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Fetch a single secret value from this server's Infisical path.
+#   usage: infisical-get SECRET_NAME
+#          infisical-get --check   (verify auth + path access, print nothing)
+set -euo pipefail
+umask 077
+
+# shellcheck disable=SC1091
+source /etc/infisical/identity.env
+
+token="$(INFISICAL_API_URL="$INFISICAL_API_URL" infisical login \
+  --method=universal-auth \
+  --client-id="$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" \
+  --client-secret="$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" \
+  --domain="$INFISICAL_API_URL" \
+  --plain --silent)"
+
+if [[ "${1:-}" == "--check" ]]; then
+  infisical secrets --token="$token" \
+    --projectId="$INFISICAL_PROJECT_ID" \
+    --env="$INFISICAL_ENV_SLUG" \
+    --path="$INFISICAL_SECRET_PATH" \
+    --domain="$INFISICAL_API_URL" >/dev/null
+  exit 0
+fi
+
+[[ $# -eq 1 ]] || { echo "usage: infisical-get SECRET_NAME" >&2; exit 2; }
+
+exec infisical secrets get "$1" --token="$token" \
+  --projectId="$INFISICAL_PROJECT_ID" \
+  --env="$INFISICAL_ENV_SLUG" \
+  --path="$INFISICAL_SECRET_PATH" \
+  --domain="$INFISICAL_API_URL" \
+  --plain
