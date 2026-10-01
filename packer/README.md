@@ -9,7 +9,9 @@ D2 and D10 for the design and threat model.
 
 ## How it works
 
-1. Packer boots a temporary cx33 into the Hetzner **rescue system**.
+1. Packer boots a temporary **cpx22** into the Hetzner **rescue system**. Its
+   80 GB disk sets the snapshot size, and a snapshot only restores onto an
+   equal or larger disk, so the image fits CX33, CPX32, CX43, and so on.
 2. `scripts/install-fde.sh` partitions the disk (BIOS-boot / 1 GiB `/boot` /
    LUKS2 root), debootstraps Ubuntu, installs kernel + grub + cloud-init +
    `dropbear-initramfs` + the tailscale package, embeds the static tailscale
@@ -50,7 +52,7 @@ All of these are produced by the bootstrap (README → "One-time bootstrap");
 ## Building
 
 CI: run the "Packer FDE image" workflow via **workflow_dispatch** (PRs only
-validate — a build spins up a paid cx33 for ~10–15 minutes).
+validate — a build spins up a paid cpx22 for ~10–15 minutes).
 
 Locally:
 

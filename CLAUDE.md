@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Infrastructure-as-code for a single personal Hetzner CX33 server running sandboxed AI agent workflows (NVIDIA NemoClaw). There is no application code and no test suite — the repo is Terraform + Packer + Ansible + shell, and "testing" means linters, `validate`, and the post-deploy checklist in `docs/verification.md`. Nothing deploys from a laptop: **all applies/builds happen in GitHub Actions**.
+Infrastructure-as-code for a single personal Hetzner CPX32 server running sandboxed AI agent workflows (NVIDIA NemoClaw). There is no application code and no test suite — the repo is Terraform + Packer + Ansible + shell, and "testing" means linters, `validate`, and the post-deploy checklist in `docs/verification.md`. Nothing deploys from a laptop: **all applies/builds happen in GitHub Actions**.
 
 ## Commands
 

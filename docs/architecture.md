@@ -10,8 +10,27 @@ and data they don't need. The whole system is reproducible from this repo.
 
 ## Hardware
 
-Hetzner Cloud **CX33**: 4 shared AMD EPYC vCPUs, 8 GB RAM, 80 GB local SSD,
+Hetzner Cloud **CPX32**: 4 shared AMD vCPUs, 8 GB RAM, 160 GB local SSD,
 plus an attached Hetzner Volume for encrypted data.
+
+*Sizing (2026-10-01):* NemoClaw's documented minimum is **4 vCPU / 8 GB RAM /
+20 GB free disk** (recommended 16 GB RAM, 40 GB disk; `docs/get-started/
+prerequisites.mdx` at the pinned release). RAM is the binding constraint: the
+~2.4 GB sandbox image is loaded while Docker, k3s, and the OpenShell gateway
+all run, and NemoClaw warns of OOM kills below 8 GB (and recommends swap at
+8 GB). CPU need is modest, since inference is remote.
+
+*Alternatives considered:* **CX33** (same 4 vCPU / 8 GB, ~¼ the price) —
+preferred but unavailable at deploy time; **CX23 / CPX22** (2 vCPU / 4 GB) —
+below NemoClaw's minimum; **CCX13** (2 dedicated vCPU / 8 GB) — below the vCPU
+minimum and dearer than CPX32; 16 GB types (CX43 unavailable; CPX42, CCX23) —
+the recommended tier, but 2–10× the cost for a personal server. Moving to a
+CX33 later is a server replacement, not an in-place resize (Hetzner can't
+shrink the CPX32's 160 GB disk): roll per `docs/runbooks/key-rotation.md`
+with `server_type = "cx33"`; `/data`, the Primary IPs, and secrets carry
+over. The image is built on a CPX22 (80 GB disk) so one snapshot fits every
+candidate type; on the CPX32 the encrypted root partition stays 80 GB, which
+is ample (Docker images live there; agent data lives on `/data`).
 
 RAM budget (approximate targets):
 

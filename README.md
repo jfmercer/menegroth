@@ -8,7 +8,7 @@ secrets wiring, and the agent runtime — is defined in this repository.
 
 | Layer | Tool | Notes |
 |-------|------|-------|
-| Infrastructure | [Terraform](https://developer.hashicorp.com/terraform) + [hcloud provider](https://registry.terraform.io/providers/hetznercloud/hcloud) | Hetzner CX33 (4 vCPU / 8 GB / 80 GB), state in HCP Terraform (state-only) |
+| Infrastructure | [Terraform](https://developer.hashicorp.com/terraform) + [hcloud provider](https://registry.terraform.io/providers/hetznercloud/hcloud) | Hetzner CPX32 (4 vCPU / 8 GB / 160 GB), state in HCP Terraform (state-only) |
 | Provisioning | [Ansible](https://docs.ansible.com/) | Hardening, Tailscale, Infisical, LUKS volume, NemoClaw |
 | Access | [Tailscale](https://tailscale.com/) | Fully dark host: **zero** public inbound ports |
 | Secrets | [Infisical Cloud](https://infisical.com/) | Source of truth for all credentials |
@@ -30,7 +30,7 @@ flowchart LR
     subgraph Tailnet
         DEV[Your devices] ---|Tailscale SSH| SRV
         CI ---|ephemeral tailnet node| SRV
-        subgraph SRV[Hetzner CX33 — no public inbound]
+        subgraph SRV[Hetzner CPX32 — no public inbound]
             HARD[Hardened Ubuntu 26.04]
             VOL[/LUKS volume mounted at /data/]
             NC[NemoClaw / OpenShell sandboxes]

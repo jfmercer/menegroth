@@ -7,7 +7,11 @@ variable "server_name" {
 variable "server_type" {
   description = "Hetzner Cloud server type"
   type        = string
-  default     = "cx33" # 4 shared AMD vCPU, 8 GB RAM, 80 GB SSD
+  # 4 shared AMD vCPU, 8 GB RAM, 160 GB SSD — NemoClaw's documented minimum is
+  # 4 vCPU / 8 GB (docs/architecture.md → Hardware). The cheaper CX33 has the
+  # same CPU/RAM but was unavailable at deploy time; switching later is a
+  # server replacement (a 160 GB disk can't shrink to the CX33's 80 GB).
+  default = "cpx32"
 }
 
 variable "location" {

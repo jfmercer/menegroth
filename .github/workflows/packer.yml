@@ -2,7 +2,7 @@
 name: Packer FDE image
 
 on:
-  workflow_dispatch: {} # building costs a temporary cx33 — trigger deliberately
+  workflow_dispatch: {} # building costs a temporary cpx22 — trigger deliberately
   pull_request:
     paths: ["packer/**", ".github/workflows/packer.yml"]
 

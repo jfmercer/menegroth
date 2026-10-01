@@ -99,8 +99,11 @@ variable "server_tag" {
 
 source "hcloud" "fde" {
   server_name = "packer-fde-build"
-  # Same type as production so the snapshot's disk geometry matches exactly.
-  server_type   = "cx33"
+  # A snapshot can only be restored onto a disk at least as large as the one
+  # it was built on, so build on the SMALLEST disk any target might have:
+  # cpx22's 80 GB fits cx33, cpx32, cx43, ccx13, ... (the root partition
+  # stays 80 GB on larger disks). x86 only — the image is amd64.
+  server_type   = "cpx22"
   location      = "nbg1"
   image         = "ubuntu-26.04" # only hosts the rescue boot; overwritten below
   rescue        = "linux64"      # build happens from the rescue system
