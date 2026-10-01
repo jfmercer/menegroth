@@ -79,7 +79,8 @@ packer/               FDE image pipeline (LUKS2 root + tailnet-unlock initramfs)
 ansible/              Provisioning: inventory, site.yml, roles/
 macos/                Mac unlock agent (launchd + 1Password + ntfy)
 scripts/bootstrap/    One-time bootstrap automation + preflight validator
-.github/workflows/    terraform.yml, ansible.yml, packer.yml
+.github/workflows/    terraform, ansible, packer, shellcheck, zizmor, codeql, renovate
+scripts/ci/           CI helpers (template rendering + shellcheck)
 docs/                 architecture.md, verification.md, runbooks/
 ```
 

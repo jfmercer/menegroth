@@ -62,9 +62,10 @@ export MENEGROTH_OP_UNLOCK_TOKEN=...   # menegroth-unlock token (or paste at the
 cd macos && ./install.sh
 ```
 
-The installer stores the service-account token (0600), prints the public key
-for `packer/fde-image.pkr.hcl` (`mac_unlock_ssh_pubkey` — image rebuild
-required on first setup), self-checks that all three vault items are
+The installer stores the service-account token (0600), prints the unlock
+key's public half (for reference — bootstrap phase 30 already stored it at
+Infisical `/unlock/MAC_UNLOCK_SSH_PUBKEY`, which the Packer build embeds; a
+changed key needs an image rebuild), self-checks that all three vault items are
 readable, and loads the launchd agent. One-time setup: the stored token
 survives Mac reboots, so there is nothing to re-run afterwards.
 

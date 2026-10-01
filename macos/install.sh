@@ -63,7 +63,7 @@ if ! op_sa item get unlock-ssh-key --vault "$OP_VAULT" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> Unlock key public half (put into packer/fde-image.pkr.hcl -> mac_unlock_ssh_pubkey):"
+echo "==> Unlock key public half (bootstrap stores it at Infisical /unlock/MAC_UNLOCK_SSH_PUBKEY for the image build):"
 op_sa item get unlock-ssh-key --vault "$OP_VAULT" --fields "public key"
 
 echo "==> Self-check: reading all unlock secrets via the service account"

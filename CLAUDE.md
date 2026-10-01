@@ -43,11 +43,13 @@ The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architect
 
 ## CI model
 
-Five path-filtered workflows in `.github/workflows/`:
+Seven workflows in `.github/workflows/` (all but renovate.yml path-filtered):
 
 - **terraform.yml** — fmt/validate/tflint + plan-as-PR-comment on PRs; auto-apply on master push. State lives in HCP Terraform (state-only backend, execution mode "Local").
 - **ansible.yml** — lint + syntax check on PRs; on master push the runner joins the tailnet as an ephemeral `tag:ci` node and runs `site.yml` over Tailscale SSH (the server has zero public inbound ports).
 - **packer.yml** — fmt/validate on PRs; image build only via manual dispatch.
+- **shellcheck.yml** — shellchecks every tracked shell script plus the *rendered* Ansible templates (`scripts/ci/shellcheck-all.sh`); rendering also catches Jinja syntax errors, which ansible-lint/`--syntax-check` never see. Beware `${#…}` in `.j2` files: `{#` opens a Jinja comment.
+- **renovate.yml** — weekly self-hosted Renovate (see below).
 - **zizmor.yml** / **codeql.yml** — security analysis of the workflows themselves (SARIF → Security tab); zizmor also runs as a pre-commit hook. Baseline: clean at `--persona=pedantic` — keep it that way when touching workflows.
 
 Supply-chain rules (see `docs/architecture.md` D7): every `uses:` is pinned to a full commit SHA with the version as a trailing comment — **update actions (and all other deps) only via the weekly grouped Renovate PR, never by hand-editing a tag back in**; all checkouts set `persist-credentials: false`; `permissions:` are job-scoped with per-line comments. Renovate (`renovate.yml` + `renovate.json5`, self-hosted, token from Infisical `/ci`) replaced Dependabot and covers every ecosystem — including the regex-tracked bare pins (`tailscale_version`, `nemoclaw_*`); it never auto-merges.
@@ -83,5 +85,5 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 ## Conventions
 
 - History is phase-per-commit (Phase 0–12), each leaving the system deployable; keep commits self-contained in that spirit.
-- `docs/architecture.md` is a decision log (D1–D5) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
+- `docs/architecture.md` is a decision log (D1–D10) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
 - The Infisical secret layout is documented in `docs/architecture.md` D3/D8 — `/ci` and `/unlock` in project `menegroth` (env `prod`), `/server` in a separate server project. New secrets go in the least-privileged path; bootstrap routes `/server` writes to `INFISICAL_SERVER_PROJECT_ID` automatically (`scripts/bootstrap/lib.sh`).

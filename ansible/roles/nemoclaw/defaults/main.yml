@@ -5,7 +5,8 @@ nemoclaw_install_tag: v0.0.89
 # The commit that tag points to. The installer is fetched by commit, not tag:
 # tags can be re-pointed after a repo compromise; commit SHAs cannot. Bump
 # BOTH together — resolve with:
-#   git ls-remote https://github.com/NVIDIA/NemoClaw 'v0.0.89^{}'
+#   git ls-remote https://github.com/NVIDIA/NemoClaw '<tag>^{}'
+# (Renovate's nemoclaw regex manager bumps both in one PR.)
 nemoclaw_install_commit: 1143aa5cce77f3bad1b3b5588bd7fddbe438237e
 
 nemoclaw_user: nemoclaw

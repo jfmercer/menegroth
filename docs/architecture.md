@@ -210,9 +210,11 @@ drops and per-sandbox network policy), blueprint-driven constraints, and
 routed inference. Agents never see raw API keys unless the blueprint grants
 them; keys are injected from Infisical into the NemoClaw host config.
 
-NemoClaw is an **alpha** project — its installer version is pinned
-(`NEMOCLAW_INSTALL_TAG` in the `nemoclaw` role defaults) and upgrades are
-deliberate, reviewed bumps, not floating `lkg`.
+NemoClaw is an **alpha** project — its installer is pinned
+(`nemoclaw_install_tag` in the `nemoclaw` role defaults, fetched by the
+paired `nemoclaw_install_commit` SHA so a re-pointed tag can't swap it) and
+upgrades are deliberate, reviewed bumps (Renovate, `review-required`), not
+floating `lkg`.
 
 ### D6 — Bootstrap automation via scripted CLIs
 

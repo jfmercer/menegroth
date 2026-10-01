@@ -117,7 +117,7 @@ passphrase="$(op_read "$OP_LUKS_REF")" || {
 
 # The SSH key rests only in 1Password; materialize it for this one ssh call
 # in a private tmp dir and remove it on any exit path.
-keydir="$(mktemp -d "${TMPDIR:-/tmp}/ai-unlock.XXXXXX")"
+keydir="$(mktemp -d "${TMPDIR:-/tmp}/menegroth-server-unlock.XXXXXX")"
 chmod 700 "$keydir"
 trap 'rm -rf "$keydir"' EXIT
 if ! op_read "$OP_SSH_KEY_REF" > "$keydir/id"; then
