@@ -9,3 +9,7 @@
     - luks_volume
     - nemoclaw
     - ops
+    # Last, and optional: an operator's personal dotfiles (no-op unless
+    # DOTFILES_REPO is set). Running last means a failure here can't leave
+    # the server half-provisioned; the run still fails visibly.
+    - dotfiles

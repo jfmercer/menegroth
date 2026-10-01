@@ -68,7 +68,8 @@ on `jfmercer/menegroth`; generate a private key (PEM). App ID + key → the
 6. Set `infisical_server_project_id` in `ansible/group_vars/all.yml` to the
    server Project ID (replaces `REPLACE_WITH_SERVER_PROJECT_ID`).
 7. `cd scripts/bootstrap && cp bootstrap.env.example bootstrap.env`; set
-   `INFISICAL_PROJECT_ID` + `INFISICAL_SERVER_PROJECT_ID`; leave
+   `INFISICAL_PROJECT_ID` + `INFISICAL_SERVER_PROJECT_ID` (and, optionally,
+   your `DOTFILES_*` — README → "Personal dotfiles"); leave
    `TF_CLOUD_ORGANIZATION="menegroth"` (it drives the HCP org via the CI
    variable — `versions.tf` no longer hardcodes it).
 8. Export the seeds (SEEDS block in `bootstrap.env.example` lists all), e.g.

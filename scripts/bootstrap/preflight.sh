@@ -24,10 +24,21 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   for s in TF_API_TOKEN INFISICAL_CLIENT_ID INFISICAL_CLIENT_SECRET; do
     if grep -qx "$s" <<<"$gh_names"; then pass "secret $s"; else fail "secret $s missing"; fi
   done
-  if gh variable list 2>/dev/null | awk '{print $1}' | grep -qx TF_CLOUD_ORGANIZATION; then
+  gh_vars="$(gh variable list 2>/dev/null | awk '{print $1, $2}')"
+  if grep -q '^TF_CLOUD_ORGANIZATION ' <<<"$gh_vars"; then
     pass "variable TF_CLOUD_ORGANIZATION"
   else
     fail "variable TF_CLOUD_ORGANIZATION missing"
+  fi
+  # Optional operator dotfiles: if configured, the ref must be a pinned SHA.
+  if grep -q '^DOTFILES_REPO ' <<<"$gh_vars"; then
+    if grep -qE '^DOTFILES_REF [0-9a-f]{40}$' <<<"$gh_vars"; then
+      pass "dotfiles configured with a pinned DOTFILES_REF"
+    else
+      fail "DOTFILES_REPO is set but DOTFILES_REF is missing or not a 40-character commit SHA"
+    fi
+  else
+    info "no operator dotfiles configured (DOTFILES_REPO unset) — fine"
   fi
 else
   warn "skipped — gh not installed or not authenticated (gh auth login)"

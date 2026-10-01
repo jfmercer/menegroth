@@ -7,6 +7,9 @@ on:
   push:
     branches: [master]
     paths: ["ansible/**", "pyproject.toml", "uv.lock", ".python-version", ".github/workflows/ansible.yml"]
+  # Re-provision without a code change — e.g. after bumping the DOTFILES_REF
+  # repository variable, or after an image roll. Provisions only from master.
+  workflow_dispatch: {}
 
 permissions: {} # granted per-job below
 
@@ -44,7 +47,9 @@ jobs:
 
   provision:
     name: Provision over tailnet
-    if: github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/master'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: lint
     runs-on: ubuntu-latest
     permissions:
@@ -91,4 +96,9 @@ jobs:
       - name: Run playbook
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False" # host keys are vouched by Tailscale SSH
+          # Optional operator dotfiles (roles/dotfiles): repository VARIABLES,
+          # not secrets — no personal configuration lives in this repo.
+          DOTFILES_REPO: ${{ vars.DOTFILES_REPO }}
+          DOTFILES_REF: ${{ vars.DOTFILES_REF }}
+          DOTFILES_DEST: ${{ vars.DOTFILES_DEST }}
         run: uv run ansible-playbook site.yml

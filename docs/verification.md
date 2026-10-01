@@ -83,6 +83,14 @@ after any significant change). They mirror the build phases.
       marker `/var/lib/nemoclaw-provisioned/<tag>` exists on the root disk.
 - [ ] Agent state lands under `/data/nemoclaw` (`du -sh /data/nemoclaw`).
 
+## Operator dotfiles (only if `DOTFILES_REPO` is set)
+
+- [ ] As `admin`: `git -C ~/<DOTFILES_DEST> rev-parse HEAD` equals
+      `DOTFILES_REF`, and `~/.local/state/menegroth-dotfiles/installed-<sha>`
+      exists.
+- [ ] A second Ansible run reports the dotfiles role unchanged.
+- [ ] Nothing was installed for `nemoclaw` (`sudo ls -a /data/nemoclaw`).
+
 ## Operations
 
 - [ ] Force an alert: `sudo systemctl start server-healthcheck.service` with

@@ -1,0 +1,30 @@
+---
+# Optional, operator-specific dotfiles — modelled on GitHub Codespaces. This
+# repo carries NO personal configuration: every value below comes from the
+# environment, which CI fills from GitHub repository variables (see README →
+# "Personal dotfiles"). With DOTFILES_REPO unset the role does nothing.
+#
+# DOTFILES_REPO  https:// clone URL of a public dotfiles repo
+# DOTFILES_REF   full 40-character commit SHA to install (never a branch:
+#                the installer runs as a sudo-capable user, so a moving ref
+#                would hand root to whoever can push to that branch)
+# DOTFILES_DEST  clone location relative to the user's home (default
+#                .dotfiles; chezmoi users typically want .local/share/chezmoi)
+dotfiles_repo: "{{ lookup('ansible.builtin.env', 'DOTFILES_REPO', default='') }}"
+dotfiles_ref: "{{ lookup('ansible.builtin.env', 'DOTFILES_REF', default='') }}"
+dotfiles_dest: "{{ lookup('ansible.builtin.env', 'DOTFILES_DEST', default='') | default('.dotfiles', true) }}"
+
+# Installed for the human login account only — never the nemoclaw service user.
+dotfiles_user: "{{ admin_user }}"
+
+# The first of these found in the repo is run, the same convention GitHub
+# Codespaces uses for dotfiles repositories.
+dotfiles_installers:
+  - install.sh
+  - install
+  - bootstrap.sh
+  - bootstrap
+  - script/bootstrap
+  - setup.sh
+  - setup
+  - script/setup

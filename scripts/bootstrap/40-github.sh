@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Phase 40 — GitHub: the only three repo secrets + the org variable.
+# Phase 40 — GitHub: the only three repo secrets + repo variables (the HCP
+# org, and the operator's optional dotfiles).
 #
 # By design nothing else lives in GitHub; every other credential is fetched
 # from Infisical at run time. Secret values are piped via stdin (never argv,
@@ -39,14 +40,34 @@ set_secret TF_API_TOKEN            "${TF_API_TOKEN:-}"
 set_secret INFISICAL_CLIENT_ID     "${INFISICAL_CLIENT_ID:-}"
 set_secret INFISICAL_CLIENT_SECRET "${INFISICAL_CLIENT_SECRET:-}"
 
+variable_exists() { gh variable list 2>/dev/null | awk '{print $1}' | grep -qx "$1"; }
+
+set_variable() { # set_variable NAME value — repo VARIABLE (not secret), non-sensitive
+  local name="$1" val="$2"
+  if variable_exists "$name"; then
+    ok "$name exists — left unchanged (gh variable set $name to change it)"
+  elif dry_skip "gh variable set $name=$val"; then
+    :
+  else
+    gh variable set "$name" --body "$val"
+    ok "$name=$val set"
+  fi
+}
+
 step "GitHub repo variable"
-if gh variable list 2>/dev/null | awk '{print $1}' | grep -qx TF_CLOUD_ORGANIZATION; then
-  ok "TF_CLOUD_ORGANIZATION exists — left unchanged"
-elif dry_skip "gh variable set TF_CLOUD_ORGANIZATION=$TF_CLOUD_ORGANIZATION"; then
-  :
+set_variable TF_CLOUD_ORGANIZATION "$TF_CLOUD_ORGANIZATION"
+
+# Optional operator dotfiles (ansible/roles/dotfiles). Personal settings live
+# in GitHub repository variables, never in this repo's source.
+step "Operator dotfiles (optional)"
+if [[ -z "${DOTFILES_REPO:-}" ]]; then
+  info "DOTFILES_REPO not set in bootstrap.env — no dotfiles will be installed"
 else
-  gh variable set TF_CLOUD_ORGANIZATION --body "$TF_CLOUD_ORGANIZATION"
-  ok "TF_CLOUD_ORGANIZATION=$TF_CLOUD_ORGANIZATION set"
+  [[ "${DOTFILES_REF:-}" =~ ^[0-9a-f]{40}$ ]] \
+    || die "DOTFILES_REF must be a full 40-character commit SHA (got '${DOTFILES_REF:-}')"
+  set_variable DOTFILES_REPO "$DOTFILES_REPO"
+  set_variable DOTFILES_REF "$DOTFILES_REF"
+  [[ -z "${DOTFILES_DEST:-}" ]] || set_variable DOTFILES_DEST "$DOTFILES_DEST"
 fi
 
 ok "GitHub phase complete"

@@ -253,6 +253,43 @@ account the same way if you ever re-run the vault phases.
 > on the machine you run it from. Fine for a personal one-time bootstrap; on a
 > shared machine, rotate the seeds afterward.
 
+## Personal dotfiles (optional)
+
+The server's login account (`admin`; see below) can get **your own**
+dotfiles, the way GitHub Codespaces does it: the `dotfiles` Ansible role
+clones your repo at a pinned commit and runs the first of `install.sh`,
+`install`, `bootstrap.sh`, `bootstrap`, `script/bootstrap`, `setup.sh`,
+`setup`, `script/setup` it finds. Whatever that installer does (packages,
+shell, tools) is your dotfiles' business; this repo carries no personal
+configuration, so other operators get nothing, or their own.
+
+Configure it with three GitHub **repository variables** (Settings → Secrets
+and variables → Actions → Variables), or set them in `bootstrap.env` and let
+bootstrap phase 40 create them:
+
+| Variable | Value |
+|---|---|
+| `DOTFILES_REPO` | `https://` clone URL (public repo) |
+| `DOTFILES_REF` | full 40-character commit SHA, never a branch |
+| `DOTFILES_DEST` | optional clone path under `$HOME` (default `.dotfiles`; chezmoi users typically want `.local/share/chezmoi`) |
+
+To roll out a newer commit, update the variable, then run the **Ansible**
+workflow by hand (Actions → Ansible → Run workflow, on `master`):
+
+```bash
+gh variable set DOTFILES_REF --body "$(gh api repos/<you>/dotfiles/commits/master --jq .sha)"
+```
+
+**Trust:** the installer runs as `admin`, which has passwordless sudo, so your
+dotfiles repo is effectively trusted with root on the server. That is why the
+ref must be a commit SHA (a branch would hand root to whoever can push to it),
+and why changes reach the server only when you bump `DOTFILES_REF`. The role
+never overwrites local edits in the clone; it stops instead.
+
+Day to day you log in as `admin` (`ssh admin@menegroth-server`, or set
+`User admin` for the host in `~/.ssh/config`); manage agents with
+`sudo -iu nemoclaw`.
+
 ## Local development
 
 Prereq: [uv](https://docs.astral.sh/uv/) — it manages all dev/CI Python

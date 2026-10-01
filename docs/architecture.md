@@ -458,6 +458,34 @@ credential (console-only unlock) — rejected: it gives up hands-free reboots,
 the point of D2. *Cost:* if the Mac's network only allows relayed Tailscale
 paths, unlocks wait for a direct path or the console.
 
+### D12 — Operator dotfiles: a generic, opt-in hook
+
+*(2026-10-01.)* An operator wants their personal dotfiles on the server's
+login account, but this repo must stay usable by anyone: no personal
+packages, settings, or repo URLs in source.
+
+**Decision:** an optional `dotfiles` role modelled on GitHub Codespaces. All
+inputs are GitHub **repository variables** (`DOTFILES_REPO`, `DOTFILES_REF`,
+`DOTFILES_DEST`), the same out-of-source pattern as `TF_CLOUD_ORGANIZATION`.
+Unset means the role does nothing. When set, it clones the repo at the pinned
+commit into the `admin` user's home and runs the repo's own installer (first
+of `install.sh`, `bootstrap.sh`, `setup.sh`, … by the Codespaces convention),
+once per commit, as `admin`, and last in the play. Everything the installer
+does is the dotfiles repo's responsibility. Never installed for `nemoclaw`.
+
+**Trust:** `admin` has passwordless sudo, so an operator's dotfiles are
+root-trusted. Hence: `DOTFILES_REF` must be a full commit SHA (enforced by the
+role, bootstrap, and preflight); a newer commit reaches the server only when
+the operator bumps the variable and re-runs the Ansible workflow
+(`workflow_dispatch`, master only); and local edits in the clone are never
+clobbered (the run fails instead).
+
+*Alternatives considered:* installing a curated package set via Ansible and
+skipping the dotfiles' own scripts — rejected: it puts one operator's
+packages into the config every operator shares; tracking a branch — rejected:
+root for anyone who can push to it; Renovate-managed pins — impossible
+without putting the operator's repo in source.
+
 ## Provisioning flow
 
 1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:
@@ -465,7 +493,8 @@ paths, unlocks wait for a direct path or the console.
    at the unlock prompt (Mac agent unlocks), then `tailscale-firstboot`
    joins the tailnet as `menegroth-server` (D10).
 2. `ansible-playbook site.yml` (CI) applies roles in order:
-   `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`.
+   `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`
+   → `dotfiles` (optional, D12).
 3. All roles are idempotent; the playbook runs on every merge to master.
 
 ## Operations

@@ -62,7 +62,7 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 1. **Packer** (`packer/`) builds an Ubuntu 26.04 snapshot with a LUKS2-encrypted root from the Hetzner rescue system. Its initramfs embeds static tailscale binaries + dropbear (key-only, forced `cryptroot-unlock` command) so the machine can be unlocked remotely at boot, and `tailscale-firstboot.service` joins a fresh server to the tailnet so Ansible can reach it (D10).
 2. **Terraform** (`terraform/`) boots the server from the newest `fde=true` snapshot. `lifecycle.ignore_changes = [image, user_data]` means new snapshots do NOT auto-replace the server — roll deliberately with `terraform apply -replace=hcloud_server.menegroth`.
-3. **Ansible** (`ansible/site.yml`) provisions in strict role order: `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`. Later roles depend on earlier ones (e.g. `luks_volume` needs `/usr/local/bin/infisical-get`; `nemoclaw` asserts `/data` is mounted). The `tailscale` role does not join the tailnet — the image does; the role asserts the node is Running.
+3. **Ansible** (`ansible/site.yml`) provisions in strict role order: `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops` → `dotfiles` (optional; no-op unless the `DOTFILES_*` repository variables are set — D12). Later roles depend on earlier ones (e.g. `luks_volume` needs `/usr/local/bin/infisical-get`; `nemoclaw` asserts `/data` is mounted). The `tailscale` role does not join the tailnet — the image does; the role asserts the node is Running.
 4. **Mac unlock agent** (`macos/`) — a launchd job polling every 30 s. When the server reboots, its initramfs joins the tailnet as an ephemeral `tag:boot-unlock` node; the agent detects it, verifies it answers directly from the server's Primary IP (D11), reads the passphrase from 1Password, and pipes it over SSH into `cryptroot-unlock`. When it can't verify, `docs/troubleshooting.md` is the playbook.
 
 ### Security invariants (do not weaken)
@@ -85,6 +85,8 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 ## Conventions
 
+- **No operator-personal configuration in source.** The repo must work for any operator: personal settings (dotfiles repo/commit, HCP org) live in GitHub repository variables or the gitignored `bootstrap.env`, and personal packages belong in the operator's own dotfiles, never in an Ansible role.
+
 - History is phase-per-commit (Phase 0–12), each leaving the system deployable; keep commits self-contained in that spirit.
-- `docs/architecture.md` is a decision log (D1–D11) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
+- `docs/architecture.md` is a decision log (D1–D12) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
 - The Infisical secret layout is documented in `docs/architecture.md` D3/D8 — `/ci` and `/unlock` in project `menegroth` (env `prod`), `/server` in a separate server project. New secrets go in the least-privileged path; bootstrap routes `/server` writes to `INFISICAL_SERVER_PROJECT_ID` automatically (`scripts/bootstrap/lib.sh`).
