@@ -6,6 +6,9 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Configure the admin account's login shell
+  ansible.builtin.import_tasks: admin.yml
+
 - name: Configure SSH hardening
   ansible.builtin.import_tasks: ssh.yml
 

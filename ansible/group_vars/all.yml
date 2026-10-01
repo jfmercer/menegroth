@@ -1,5 +1,11 @@
 ---
 admin_user: admin
+# Login shell of the admin account (what Tailscale SSH logs you into). The
+# package of the same name is installed first. Operators who prefer another
+# shell change these two lines; personal shell CONFIG belongs in their
+# dotfiles (README → "Personal dotfiles"), not here.
+admin_shell: /usr/bin/zsh
+admin_shell_package: zsh
 
 # Infisical *server* project holding this host's /server secrets (ID is not
 # sensitive). This is the dedicated project the `server` identity is a member

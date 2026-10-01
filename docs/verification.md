@@ -13,6 +13,8 @@ after any significant change). They mirror the build phases.
 
 - [ ] `ansible-playbook site.yml` twice in a row → second run reports 0 changes.
 - [ ] `ssh root@server` and password auth are refused.
+- [ ] `getent passwd admin` shows the configured login shell (`/usr/bin/zsh`
+      by default; `admin_shell` in `ansible/group_vars/all.yml`).
 - [ ] `sudo unattended-upgrade --dry-run --debug` shows security origins active.
 - [ ] Optional: `sudo lynis audit system` — record the score as a baseline.
 

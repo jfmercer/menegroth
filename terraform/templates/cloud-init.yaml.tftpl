@@ -3,7 +3,7 @@
 users:
   - name: ${admin_user}
     groups: [sudo]
-    shell: /bin/bash
+    shell: /bin/bash # zsh isn't installed yet; Ansible's harden role switches it (admin_shell)
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     lock_passwd: true
     ssh_authorized_keys:

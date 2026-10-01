@@ -1,0 +1,12 @@
+---
+# cloud-init creates the admin user with bash (the image has no zsh at first
+# boot); Ansible switches it to the configured shell once the package exists.
+- name: Install the admin login shell
+  ansible.builtin.apt:
+    name: "{{ admin_shell_package }}"
+    state: present
+
+- name: Make it the admin user's login shell
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    shell: "{{ admin_shell }}"

@@ -288,7 +288,8 @@ never overwrites local edits in the clone; it stops instead.
 
 Day to day you log in as `admin` (`ssh admin@menegroth-server`, or set
 `User admin` for the host in `~/.ssh/config`); manage agents with
-`sudo -iu nemoclaw`.
+`sudo -iu nemoclaw`. Its login shell is zsh (`admin_shell` in
+`ansible/group_vars/all.yml`); your dotfiles supply the zsh configuration.
 
 ## Local development
 

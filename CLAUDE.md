@@ -85,7 +85,7 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 ## Conventions
 
-- **No operator-personal configuration in source.** The repo must work for any operator: personal settings (dotfiles repo/commit, HCP org) live in GitHub repository variables or the gitignored `bootstrap.env`, and personal packages belong in the operator's own dotfiles, never in an Ansible role.
+- **No operator-personal configuration in source.** The repo must work for any operator: personal settings (dotfiles repo/commit, HCP org) live in GitHub repository variables; the admin login shell is the one deliberate exception, a single `admin_shell` setting in `ansible/group_vars/all.yml` or the gitignored `bootstrap.env`, and personal packages belong in the operator's own dotfiles, never in an Ansible role.
 
 - History is phase-per-commit (Phase 0–12), each leaving the system deployable; keep commits self-contained in that spirit.
 - `docs/architecture.md` is a decision log (D1–D12) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
