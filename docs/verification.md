@@ -71,7 +71,16 @@ after any significant change). They mirror the build phases.
 - [ ] As the nemoclaw user: onboard and run one sample agent end-to-end.
 - [ ] Blocked egress actually blocks: from inside the sandbox, `curl` a
       non-allowlisted host and confirm it fails.
-- [ ] `systemctl show user-1500.slice -p MemoryMax` reflects the configured cap.
+- [ ] Containers are capped: `systemd-cgls -u nemoclaw.slice` lists the
+      Docker containers (k3s, gateway, sandboxes), and
+      `systemctl show nemoclaw.slice -p MemoryMax` shows the 6 GB cap;
+      `systemctl show user-1500.slice -p MemoryMax` shows the CLI cap.
+- [ ] `swapon --show` lists `/swapfile` (4 GB, on the encrypted root).
+- [ ] `sudo ss -tlnp` shows no Docker-published port bound to `0.0.0.0`/`::`
+      (daemon.json `ip: 127.0.0.1`).
+- [ ] The installer ran from the pinned commit: the role's
+      `NEMOCLAW_INSTALL_REF` equals `nemoclaw_install_commit`, and the
+      marker `/var/lib/nemoclaw-provisioned/<tag>` exists on the root disk.
 - [ ] Agent state lands under `/data/nemoclaw` (`du -sh /data/nemoclaw`).
 
 ## Operations

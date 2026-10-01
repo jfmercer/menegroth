@@ -29,7 +29,25 @@ nemoclaw_provider_key_env: ""
 nemoclaw_policy_mode: suggested
 nemoclaw_sandbox_name: main
 
-# Host-level RAM backstop for everything the nemoclaw user runs (the
-# blueprint should also set per-sandbox limits; this catches runaways).
-nemoclaw_memory_high: 6G
-nemoclaw_memory_max: 7G
+# ---- Memory (8 GB host; docs/architecture.md → Hardware) -------------------
+# The sandboxes, k3s, and the OpenShell gateway are DOCKER CONTAINERS, which
+# run under dockerd, not under the nemoclaw user's session. Docker puts every
+# container in nemoclaw.slice (daemon.json cgroup-parent), and that slice
+# carries the real cap. The user slice only covers the nemoclaw CLI/Node
+# processes. Both are ceilings, backed by swap — not reservations.
+nemoclaw_containers_memory_high: 5G
+nemoclaw_containers_memory_max: 6G
+nemoclaw_memory_high: 1G
+nemoclaw_memory_max: 1536M
+
+# NemoClaw recommends swap at 8 GB RAM: the sandbox image load can otherwise
+# OOM. The swap file lives on the LUKS-encrypted root, so paged-out memory
+# stays encrypted at rest.
+nemoclaw_swap_file: /swapfile
+nemoclaw_swap_size_mb: 4096
+
+# ---- Docker (installed by this role, not by the NemoClaw installer) ---------
+# The installer would otherwise run `sudo sh get.docker.com` + `usermod`,
+# which the unprivileged nemoclaw user can't. SHA-256 of Docker's armored apt
+# key: a vendor key rotation fails the play loudly — verify, then bump.
+nemoclaw_docker_apt_key_sha256: 1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570 # gitleaks:allow (public key hash, not a secret)

@@ -1,0 +1,96 @@
+---
+# Docker comes from Docker's own signed apt repo (NemoClaw's tested path is
+# Docker Engine) and is installed here, as root, because the NemoClaw
+# installer runs as the unprivileged nemoclaw user and would otherwise need
+# sudo for get.docker.com and usermod.
+- name: Install NemoClaw host prerequisites
+  ansible.builtin.apt:
+    name:
+      - binutils # `strings`, used to verify the OpenShell binary
+      - zstd
+      - git # the installer clones NemoClaw at the pinned commit
+      - ca-certificates
+      - curl
+    state: present
+
+- name: Install Docker apt signing key (pinned by checksum)
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    checksum: "sha256:{{ nemoclaw_docker_apt_key_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+
+- name: Install Docker Engine
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin # BuildKit builds the sandbox image
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Every container (sandboxes, k3s, OpenShell gateway) lands in this slice,
+# so its limits are the effective memory cap for the whole agent stack.
+- name: Define nemoclaw.slice (memory cap for all Docker containers)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nemoclaw.slice
+    content: |
+      [Unit]
+      Description=NemoClaw containers (all Docker workloads)
+
+      [Slice]
+      MemoryHigh={{ nemoclaw_containers_memory_high }}
+      MemoryMax={{ nemoclaw_containers_memory_max }}
+      TasksMax=4096
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Ensure Docker config directory exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# - cgroup-parent: put every container under nemoclaw.slice (the memory cap).
+# - ip: published container ports bind to loopback by default. Docker's
+#   iptables rules bypass ufw, so without this a published port would skip
+#   the host firewall (the Hetzner firewall still blocks it — defense in depth).
+# - log-driver local: compressed, size-capped container logs.
+- name: Configure the Docker daemon
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ nemoclaw_docker_daemon | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    nemoclaw_docker_daemon:
+      cgroup-parent: nemoclaw.slice
+      ip: 127.0.0.1
+      log-driver: local
+  notify: Restart docker
+
+- name: Flush handlers so dockerd starts with the final config
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Docker
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: true
+    state: started

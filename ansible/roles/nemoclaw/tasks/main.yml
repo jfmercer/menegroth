@@ -3,6 +3,15 @@
   ansible.builtin.command: mountpoint -q /data
   changed_when: false
 
+- name: Configure swap
+  ansible.builtin.import_tasks: swap.yml
+
+- name: Install and configure Docker
+  ansible.builtin.import_tasks: docker.yml
+
+# docker group membership is ROOT-EQUIVALENT (NemoClaw requires Docker
+# access; its docs say so). The agents' isolation boundary is the OpenShell
+# sandbox, not this Unix user — see docs/architecture.md D5.
 - name: Create nemoclaw user (home on the encrypted volume)
   ansible.builtin.user:
     name: "{{ nemoclaw_user }}"
@@ -11,6 +20,8 @@
     shell: /bin/bash
     system: false
     create_home: true
+    groups: [docker]
+    append: true
 
 - name: Enable linger so always-on agents survive without a login session
   ansible.builtin.command: loginctl enable-linger {{ nemoclaw_user }}
@@ -25,7 +36,9 @@
     group: root
     mode: "0755"
 
-- name: Cap nemoclaw user slice memory (OOM backstop for the 8 GB host)
+# Only the nemoclaw CLI/Node processes run here — the containers are capped
+# by nemoclaw.slice (docker.yml).
+- name: Cap nemoclaw user slice memory (CLI processes)
   ansible.builtin.copy:
     dest: /etc/systemd/system/user-{{ nemoclaw_uid }}.slice.d/50-memory.conf
     content: |
@@ -70,10 +83,22 @@
     group: root
     mode: "0750"
 
-- name: Run the pinned NemoClaw installer (first run only)
+# The marker lives on the ROOT disk, next to what the installer puts there
+# (Docker images, OpenShell, k3s state). A replacement server keeps /data but
+# gets a fresh root, so it must re-run the installer; a marker on /data would
+# wrongly skip it.
+- name: Ensure provisioning-marker directory exists
+  ansible.builtin.file:
+    path: /var/lib/nemoclaw-provisioned
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Run the pinned NemoClaw installer (once per release, per root disk)
   ansible.builtin.command: /usr/local/bin/nemoclaw-install
   args:
-    creates: "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
+    creates: /var/lib/nemoclaw-provisioned/{{ nemoclaw_install_tag }}
   # The wrapper exports the provider API key (when configured) into the
   # installer env.
   no_log: true

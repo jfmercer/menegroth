@@ -3,6 +3,14 @@
 # Run the NemoClaw installer, pinned and non-interactive, as the nemoclaw
 # user. If a provider key is configured (nemoclaw_provider_key_secret), it is
 # fetched from Infisical at run time and passed via the environment only.
+#
+# Pinning: the bootstrap install.sh is fetched by commit, and
+# NEMOCLAW_INSTALL_REF (which takes precedence over NEMOCLAW_INSTALL_TAG)
+# makes it clone and run the real installer from that SAME commit. Without
+# it, the installer payload would be fetched by the mutable tag.
+#
+# Docker is pre-installed and the user is in the docker group (docker.yml),
+# so the installer needs no sudo; runuser applies the user's groups.
 set -euo pipefail
 
 {% if nemoclaw_provider_key_secret %}
@@ -11,6 +19,7 @@ provider_key="$(/usr/local/bin/infisical-get {{ nemoclaw_provider_key_secret }})
 runuser -u {{ nemoclaw_user }} -- env \
   HOME={{ nemoclaw_home }} \
   NEMOCLAW_INSTALL_TAG={{ nemoclaw_install_tag }} \
+  NEMOCLAW_INSTALL_REF={{ nemoclaw_install_commit }} \
   NEMOCLAW_NON_INTERACTIVE=1 \
   NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
   NEMOCLAW_AGENT={{ nemoclaw_agent }} \
@@ -22,5 +31,4 @@ runuser -u {{ nemoclaw_user }} -- env \
 {% endif %}
   bash -c 'curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/{{ nemoclaw_install_commit }}/install.sh | bash'
 
-touch "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
-chown {{ nemoclaw_user }}:{{ nemoclaw_user }} "{{ nemoclaw_home }}/.nemoclaw-provisioned-{{ nemoclaw_install_tag }}"
+touch "/var/lib/nemoclaw-provisioned/{{ nemoclaw_install_tag }}"

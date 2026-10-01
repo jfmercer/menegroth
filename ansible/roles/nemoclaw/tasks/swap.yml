@@ -1,0 +1,40 @@
+---
+# NemoClaw recommends swap on 8 GB hosts (the sandbox image load can OOM).
+# The file sits on the LUKS-encrypted root, so swapped pages stay encrypted
+# at rest.
+- name: Create the swap file
+  ansible.builtin.command: >-
+    fallocate -l {{ nemoclaw_swap_size_mb }}M {{ nemoclaw_swap_file }}
+  args:
+    creates: "{{ nemoclaw_swap_file }}"
+  register: nemoclaw_swap_created
+
+- name: Restrict swap file permissions
+  ansible.builtin.file:
+    path: "{{ nemoclaw_swap_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Format the swap file
+  ansible.builtin.command: mkswap {{ nemoclaw_swap_file }}
+  when: nemoclaw_swap_created is changed
+  changed_when: true
+
+- name: Persist swap in fstab
+  ansible.posix.mount:
+    src: "{{ nemoclaw_swap_file }}"
+    path: none
+    fstype: swap
+    opts: sw
+    state: present
+
+- name: Check active swap
+  ansible.builtin.command: swapon --show=NAME --noheadings
+  register: nemoclaw_swap_active
+  changed_when: false
+
+- name: Activate swap
+  ansible.builtin.command: swapon {{ nemoclaw_swap_file }}
+  when: nemoclaw_swap_file not in nemoclaw_swap_active.stdout_lines
+  changed_when: true

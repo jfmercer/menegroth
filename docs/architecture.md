@@ -34,11 +34,18 @@ is ample (Docker images live there; agent data lives on `/data`).
 
 RAM budget (approximate targets):
 
-| Component | Budget |
+| Component | Budget / cap |
 |-----------|--------|
-| Base OS + sshd + tailscaled + agents' host services | ~0.6 GB |
+| Base OS + sshd + tailscaled + dockerd/containerd | ~1 GB (uncapped) |
 | Monitoring/healthcheck | ~0.1 GB |
-| NemoClaw / OpenShell sandboxes | remaining ~7 GB (enforced per-sandbox limits) |
+| All Docker containers — sandboxes, k3s, OpenShell gateway (`nemoclaw.slice`) | `MemoryHigh` 5 GB / `MemoryMax` 6 GB |
+| nemoclaw CLI / Node processes (`user-1500.slice`) | `MemoryHigh` 1 GB / `MemoryMax` 1.5 GB |
+| Swap file on the encrypted root | 4 GB |
+
+The caps are ceilings, not reservations (they sum past 8 GB on purpose); swap
+absorbs peaks such as the sandbox-image load. Docker containers run under
+dockerd, not the nemoclaw user's session, so the container cap is applied by
+pointing Docker's `cgroup-parent` at `nemoclaw.slice`.
 
 No GPU: all inference is routed to cloud APIs. Local models are out of scope.
 
@@ -229,10 +236,32 @@ routed inference. Agents never see raw API keys unless the blueprint grants
 them; keys are injected from Infisical into the NemoClaw host config.
 
 NemoClaw is an **alpha** project — its installer is pinned
-(`nemoclaw_install_tag` in the `nemoclaw` role defaults, fetched by the
-paired `nemoclaw_install_commit` SHA so a re-pointed tag can't swap it) and
-upgrades are deliberate, reviewed bumps (Renovate, `review-required`), not
-floating `lkg`.
+(`nemoclaw_install_tag` in the `nemoclaw` role defaults, plus the paired
+`nemoclaw_install_commit` SHA) and upgrades are deliberate, reviewed bumps
+(Renovate, `review-required`), not floating `lkg`. The commit pins *both*
+stages: the bootstrap `install.sh` is downloaded by commit, and
+`NEMOCLAW_INSTALL_REF=<commit>` makes it clone and run the real installer
+from that same commit (otherwise it would fetch the payload by the mutable
+tag).
+
+**Host integration (2026-10-01):** the role installs Docker Engine from
+Docker's signed apt repo (key pinned by SHA-256) and adds the `nemoclaw`
+user to the `docker` group *before* running the installer, which then needs
+no sudo (it would otherwise run `sudo sh get.docker.com` + `usermod`).
+`daemon.json` puts every container in `nemoclaw.slice` (the memory cap),
+binds published ports to `127.0.0.1` (Docker's iptables rules bypass ufw;
+the Hetzner firewall still blocks everything, so this restores the host
+layer of defense in depth), and uses the size-capped `local` log driver.
+**Accepted risk:** `docker` group membership is root-equivalent, as
+NemoClaw's own docs warn, so a compromise of the `nemoclaw` account is a
+host compromise. The agents' isolation boundary is the OpenShell sandbox,
+not that Unix user; the user exists to keep agent state on `/data` and out
+of the admin account. *Alternative considered:* rootless Docker — not a
+NemoClaw-tested path (k3s-in-Docker under rootless is fragile), so rejected
+for now. NemoClaw validates Ubuntu 24.04 as a host; its 26.04 lane covers
+installer and preflight but not yet live onboarding, so this host is ahead
+of upstream validation (`docs/verification.md` checks the stack end to
+end).
 
 ### D6 — Bootstrap automation via scripted CLIs
 

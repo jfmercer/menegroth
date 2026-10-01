@@ -25,19 +25,21 @@ failed="$(systemctl --failed --no-legend --plain | awk '{print $1}')"
 state="$(tailscale status --json 2>/dev/null | jq -r .BackendState)"
 [[ "$state" == "Running" ]] || problems+=("Tailscale backend state: ${state:-unknown}")
 
-# OOM kills in the nemoclaw slice. The kernel counter is cumulative since
-# boot, so alert only when it has grown since the last run (state resets
-# naturally when a reboot zeroes the counter).
-events=/sys/fs/cgroup/user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice/memory.events
-seen_file=/var/lib/server-healthcheck/oom_kill_seen
-if [[ -f "$events" ]]; then
+# OOM kills in the agent stack: nemoclaw.slice holds every Docker container
+# (sandboxes, k3s, OpenShell gateway); the user slice holds the nemoclaw CLI.
+# The kernel counter is cumulative since boot, so alert only when it has
+# grown since the last run (state resets naturally when a reboot zeroes it).
+for slice in nemoclaw.slice user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice; do
+  events="/sys/fs/cgroup/$slice/memory.events"
+  seen_file="/var/lib/server-healthcheck/oom_kill_seen.${slice##*/}"
+  [[ -f "$events" ]] || continue
   ooms="$(awk '$1 == "oom_kill" {print $2}' "$events")"
   ooms="${ooms:-0}"
   seen="$(cat "$seen_file" 2>/dev/null || echo 0)"
-  ((ooms > seen)) && problems+=("nemoclaw slice: $((ooms - seen)) new OOM kill(s) (${ooms} since boot)")
+  ((ooms > seen)) && problems+=("${slice##*/}: $((ooms - seen)) new OOM kill(s) (${ooms} since boot)")
   mkdir -p "${seen_file%/*}"
   echo "$ooms" >"$seen_file"
-fi
+done
 
 # Dead-man heartbeat (D10): ping on EVERY run. The external monitor alerts
 # when pings STOP — the only signal for a server that never came back from
