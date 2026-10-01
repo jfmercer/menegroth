@@ -29,8 +29,22 @@ repos:
           - --hook-config=--retry-once-with-cleanup=true
       - id: terraform_tflint
 
-  - repo: https://github.com/ansible/ansible-lint
-    rev: v26.6.0
+  # Local hooks reuse the uv-locked toolchain (pyproject.toml + uv.lock), so
+  # there is one ansible-lint version, not a second pre-commit-pinned copy.
+  - repo: local
     hooks:
+      # Run from ansible/ so ansible/.ansible-lint (which excludes the
+      # installed Galaxy collections) and ansible.cfg are picked up.
       - id: ansible-lint
+        name: ansible-lint
+        entry: bash -c 'cd ansible && uv run --frozen ansible-lint'
+        language: system
         files: ^ansible/
+        pass_filenames: false
+      # Same check as .github/workflows/shellcheck.yml (needs shellcheck).
+      - id: shellcheck-all
+        name: shellcheck (scripts + rendered Ansible templates)
+        entry: scripts/ci/shellcheck-all.sh
+        language: system
+        files: ^(scripts|macos|packer|ansible/roles|ansible/group_vars)/|^\.shellcheckrc$
+        pass_filenames: false

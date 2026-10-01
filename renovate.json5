@@ -80,10 +80,11 @@
       groupName: "python tooling",
     },
     {
-      // tailscale is baked into the Packer initramfs — its own PR, flagged so
-      // the reviewer knows a Packer rebuild + kernel-survival test is required.
+      // tailscale is baked into the Packer initramfs (and pinned for the CI
+      // runner in ansible.yml) — one PR bumps both, flagged so the reviewer
+      // knows a Packer rebuild + kernel-survival test is required.
       matchDepNames: ["tailscale/tailscale"],
-      groupName: "tailscale (packer)",
+      groupName: "tailscale",
       addLabels: ["needs-packer-rebuild"],
     },
     {

@@ -7,6 +7,7 @@ prereqs() { echo "$PREREQ"; }
 case "$1" in
   prereqs) prereqs; exit 0 ;;
 esac
+# shellcheck disable=SC1091 # exists only inside initramfs-tools at build time
 . /usr/share/initramfs-tools/hook-functions
 
 copy_exec /usr/lib/tailscale-initramfs/tailscaled /usr/bin/tailscaled

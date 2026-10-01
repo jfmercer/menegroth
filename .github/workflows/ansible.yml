@@ -3,13 +3,12 @@ name: Ansible
 
 on:
   pull_request:
-    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+    paths: ["ansible/**", "pyproject.toml", "uv.lock", ".python-version", ".github/workflows/ansible.yml"]
   push:
     branches: [master]
-    paths: ["ansible/**", ".github/workflows/ansible.yml"]
+    paths: ["ansible/**", "pyproject.toml", "uv.lock", ".python-version", ".github/workflows/ansible.yml"]
 
-permissions:
-  contents: read
+permissions: {} # granted per-job below
 
 concurrency:
   group: ansible
@@ -23,6 +22,8 @@ jobs:
   lint:
     name: Lint + syntax check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -46,6 +47,8 @@ jobs:
     if: github.event_name == 'push'
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -72,7 +75,10 @@ jobs:
           oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ env.TS_OAUTH_SECRET }}
           tags: tag:ci
-          version: latest
+          # Pinned (not `latest`); Renovate bumps it with the Packer
+          # initramfs pin in the grouped tailscale PR.
+          # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
+          version: "1.98.9"
 
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:

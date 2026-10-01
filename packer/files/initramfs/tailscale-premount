@@ -7,6 +7,7 @@ prereqs() { echo "$PREREQ"; }
 case "$1" in
   prereqs) prereqs; exit 0 ;;
 esac
+# shellcheck disable=SC1091 # exists only inside the running initramfs
 . /scripts/functions
 
 configure_networking
