@@ -4,6 +4,9 @@
 infisical_api_url: https://eu.infisical.com
 infisical_env_slug: prod
 infisical_server_secret_path: /server
+# SHA-256 of the armored apt signing key. A vendor key rotation fails the
+# play loudly instead of silently trusting a new key — verify, then bump.
+infisical_apt_key_sha256: 94d2a14dd994fc02919d3cd6aacafd5075a8195d891477df36b33f4b421f637d
 
 # Credentials of the "server" machine identity (universal auth). Delivered
 # by CI from the /ci secret path as env vars — never written to the repo.

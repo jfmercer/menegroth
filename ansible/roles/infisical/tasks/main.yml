@@ -1,18 +1,29 @@
 ---
-- name: Add Infisical CLI apt repository (one-shot setup script)
-  ansible.builtin.shell: >-
-    set -o pipefail &&
-    curl -1sLf https://artifacts-cli.infisical.com/setup.deb.sh | bash
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/sources.list.d/infisical-infisical-cli.list
-  register: infisical_repo_setup
+# Explicit repo + pinned signing key instead of the vendor's `curl | bash`
+# setup script (which only does these two things, as root, unpinned).
+- name: Install Infisical apt signing key (pinned by checksum)
+  ansible.builtin.get_url:
+    url: https://artifacts-cli.infisical.com/infisical.gpg
+    dest: /etc/apt/keyrings/infisical.asc
+    checksum: "sha256:{{ infisical_apt_key_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add Infisical CLI apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/infisical.asc]
+      https://artifacts-cli.infisical.com/deb stable main
+    filename: infisical
+    state: present
 
 - name: Install Infisical CLI
   ansible.builtin.apt:
     name: infisical
     state: present
-    update_cache: "{{ infisical_repo_setup is changed }}"
+    update_cache: true
+    cache_valid_time: 3600
 
 - name: Create Infisical config directory
   ansible.builtin.file:

@@ -3,6 +3,7 @@
   ansible.builtin.get_url:
     url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
     dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    checksum: "sha256:{{ tailscale_apt_key_sha256 }}"
     owner: root
     group: root
     mode: "0644"

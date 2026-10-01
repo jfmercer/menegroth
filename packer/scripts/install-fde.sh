@@ -38,11 +38,17 @@ mount "/dev/mapper/$MAPPER" "$TARGET"
 mkdir -p "$TARGET/boot"
 mount "$BOOT_PART" "$TARGET/boot"
 apt-get update -qq
-apt-get install -y -qq debootstrap
+# ubuntu-keyring: the rescue system is Debian, which lacks Ubuntu's archive
+# keys by default — without them debootstrap only WARNS and installs
+# unverified packages fetched over plain HTTP. --keyring makes signature
+# verification mandatory (a missing/rotated key fails the build loudly).
+apt-get install -y -qq debootstrap ubuntu-keyring
 # Pass the generic `gutsy` script explicitly: every Ubuntu suite script is a
 # symlink to it, so this succeeds even if the rescue system's debootstrap
 # predates the target suite and would otherwise abort with "No such script".
-debootstrap --arch=amd64 "$UBUNTU_SERIES" "$TARGET" http://archive.ubuntu.com/ubuntu gutsy
+debootstrap --arch=amd64 \
+  --keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg \
+  "$UBUNTU_SERIES" "$TARGET" http://archive.ubuntu.com/ubuntu gutsy
 
 echo "=== 4/8 Base system configuration"
 LUKS_UUID="$(blkid -s UUID -o value "$LUKS_PART")"
@@ -87,9 +93,12 @@ printf 'no-port-forwarding,no-agent-forwarding,command="cryptroot-unlock" %s\n' 
   "$MAC_UNLOCK_PUBKEY" > "$TARGET/etc/dropbear/initramfs/authorized_keys"
 chmod 600 "$TARGET/etc/dropbear/initramfs/authorized_keys"
 
-# Static tailscale binaries for the initramfs (Go static build).
-curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_amd64.tgz" \
-  -o /tmp/tailscale.tgz
+# Static tailscale binaries for the initramfs (Go static build), checked
+# against Tailscale's published SHA-256 before anything is extracted.
+ts_url="https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_amd64.tgz"
+curl -fsSL "$ts_url" -o /tmp/tailscale.tgz
+ts_sha="$(curl -fsSL "${ts_url}.sha256")"
+printf '%s  /tmp/tailscale.tgz\n' "$ts_sha" | sha256sum -c --quiet -
 mkdir -p "$TARGET/usr/lib/tailscale-initramfs"
 tar -xzf /tmp/tailscale.tgz -C "$TARGET/usr/lib/tailscale-initramfs" \
   --strip-components=1 \
