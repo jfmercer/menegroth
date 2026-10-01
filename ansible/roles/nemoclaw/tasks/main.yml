@@ -38,6 +38,30 @@
     mode: "0644"
   notify: Reload systemd
 
+- name: Ensure user-manager drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/user@{{ nemoclaw_uid }}.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Linger starts the nemoclaw user manager at boot, but its home (and all
+# agent state) lives on /data, which data-volume.service mounts only after
+# fetching the key from Infisical. Without this ordering the agents can start
+# against the bare mount-point directory on the root disk.
+- name: Start the nemoclaw user manager only after /data is mounted
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/user@{{ nemoclaw_uid }}.service.d/50-data-volume.conf
+    content: |
+      [Unit]
+      Requires=data-volume.service
+      After=data-volume.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
 - name: Install nemoclaw-install wrapper
   ansible.builtin.template:
     src: nemoclaw-install.sh.j2

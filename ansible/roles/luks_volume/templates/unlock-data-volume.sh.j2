@@ -3,19 +3,34 @@
 # Unlock and mount the LUKS data volume. Idempotent; runs at boot via
 # data-volume.service. The key is fetched from Infisical and piped straight
 # into cryptsetup — it never touches a filesystem.
+#
+# Retries internally (rather than via systemd Restart=) so the unit's start
+# job only completes once /data is really mounted: units ordered After= it
+# (the nemoclaw user manager, restic) then wait instead of failing on the
+# first attempt and never being retried.
 set -euo pipefail
 
 device="$(ls {{ luks_volume_device_glob }})"
 mapper="{{ luks_volume_mapper }}"
 mount_point="{{ luks_volume_mount }}"
+attempts={{ luks_volume_unlock_attempts }}
 
 if mountpoint -q "$mount_point"; then
   exit 0
 fi
 
-if [[ ! -e "/dev/mapper/$mapper" ]]; then
-  /usr/local/bin/infisical-get "{{ luks_volume_key_secret }}" \
-    | cryptsetup open "$device" "$mapper" --key-file=-
-fi
+# Infisical Cloud may not be reachable the instant the network is "online".
+for ((i = 1; i <= attempts; i++)); do
+  if [[ -e "/dev/mapper/$mapper" ]] || /usr/local/bin/infisical-get "{{ luks_volume_key_secret }}" \
+    | cryptsetup open "$device" "$mapper" --key-file=-; then
+    break
+  fi
+  if ((i == attempts)); then
+    echo "unlock-data-volume: giving up after $attempts attempts" >&2
+    exit 1
+  fi
+  echo "unlock-data-volume: attempt $i/$attempts failed; retrying in 15 s" >&2
+  sleep 15
+done
 
 mount -o {{ luks_volume_mount_opts }} "/dev/mapper/$mapper" "$mount_point"

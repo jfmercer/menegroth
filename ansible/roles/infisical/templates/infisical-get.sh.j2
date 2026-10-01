@@ -9,7 +9,8 @@ umask 077
 # shellcheck disable=SC1091
 source /etc/infisical/identity.env
 
-token="$(INFISICAL_API_URL="$INFISICAL_API_URL" infisical login \
+export INFISICAL_API_URL
+token="$(infisical login \
   --method=universal-auth \
   --client-id="$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" \
   --client-secret="$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" \

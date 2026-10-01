@@ -25,13 +25,22 @@ failed="$(systemctl --failed --no-legend --plain | awk '{print $1}')"
 state="$(tailscale status --json 2>/dev/null | jq -r .BackendState)"
 [[ "$state" == "Running" ]] || problems+=("Tailscale backend state: ${state:-unknown}")
 
-# Memory pressure on the nemoclaw slice (agents being throttled/killed)
-if [[ -f /sys/fs/cgroup/user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice/memory.events ]]; then
-  ooms="$(awk '/oom_kill/ {print $2}' /sys/fs/cgroup/user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice/memory.events)"
-  [[ "${ooms:-0}" -gt 0 ]] && problems+=("nemoclaw slice oom_kill count: ${ooms}")
+# OOM kills in the nemoclaw slice. The kernel counter is cumulative since
+# boot, so alert only when it has grown since the last run (state resets
+# naturally when a reboot zeroes the counter).
+events=/sys/fs/cgroup/user.slice/user-{{ nemoclaw_uid | default(1500) }}.slice/memory.events
+seen_file=/var/lib/server-healthcheck/oom_kill_seen
+if [[ -f "$events" ]]; then
+  ooms="$(awk '$1 == "oom_kill" {print $2}' "$events")"
+  ooms="${ooms:-0}"
+  seen="$(cat "$seen_file" 2>/dev/null || echo 0)"
+  ((ooms > seen)) && problems+=("nemoclaw slice: $((ooms - seen)) new OOM kill(s) (${ooms} since boot)")
+  mkdir -p "${seen_file%/*}"
+  echo "$ooms" >"$seen_file"
 fi
 
-(( ${#problems[@]} == 0 )) && exit 0
+# (No array-length expansion here: its brace-hash opens a Jinja comment.)
+[[ -z "${problems[*]-}" ]] && exit 0
 
 ntfy_url="$(/usr/local/bin/infisical-get NTFY_TOPIC_URL 2>/dev/null)" || {
   echo "healthcheck: problems found but could not fetch NTFY_TOPIC_URL" >&2

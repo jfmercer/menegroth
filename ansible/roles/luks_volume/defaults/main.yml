@@ -5,5 +5,7 @@ luks_volume_fs: ext4
 luks_volume_mount_opts: nosuid,nodev
 # Name of the secret (under /server) holding the LUKS passphrase.
 luks_volume_key_secret: DATA_VOLUME_LUKS_KEY
+# Boot-time unlock retries (15 s apart) while Infisical is unreachable.
+luks_volume_unlock_attempts: 40
 # Hetzner volumes appear under /dev/disk/by-id with this prefix.
 luks_volume_device_glob: /dev/disk/by-id/scsi-0HC_Volume_*

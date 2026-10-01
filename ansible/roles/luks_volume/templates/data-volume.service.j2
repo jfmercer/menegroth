@@ -8,11 +8,10 @@ After=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# The script retries internally (attempts x 15 s), so the start job stays
+# pending until /data is mounted; dependents ordered After= this unit wait.
 ExecStart=/usr/local/bin/unlock-data-volume
-# Infisical Cloud may not be reachable the instant the network is "online";
-# retry rather than leaving /data locked after boot.
-Restart=on-failure
-RestartSec=15
+TimeoutStartSec={{ (luks_volume_unlock_attempts | int) * 20 + 60 }}
 
 [Install]
 WantedBy=multi-user.target
