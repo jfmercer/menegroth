@@ -30,7 +30,7 @@ keys, ntfy topic) is **[script]**-generated — do **not** make those by hand.
 | **Tailscale** | API access token (ACL-write + key-mint); a `tag:ci` OAuth client (`auth_keys` scope) | `TS_API_TOKEN`; `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` → `/ci` |
 | **HCP Terraform** | org **`menegroth`** + workspace **`menegroth`**, Execution Mode **Local**; user/team token | `TF_API_TOKEN` (GitHub secret) |
 | **Infisical** (EU) | two projects + two identities (below) | GitHub secrets + `/ci` |
-| **GitHub App** (Renovate) | App with Contents+PRs+**Workflows** write, installed on the repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` → `/ci` |
+| **GitHub App** (Renovate) | App with Contents+PRs+**Workflows**+Issues+Commit statuses write, Dependabot alerts read, installed on the repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` → `/ci` |
 
 **1Password service accounts** (1password.com → Developer → Service Accounts):
 
@@ -54,9 +54,11 @@ built-in **read** role):
   `SERVER_IDENTITY_CLIENT_ID` / `SERVER_IDENTITY_CLIENT_SECRET`.
 
 **GitHub App (Renovate)**: GitHub → Settings → Developer settings → GitHub Apps
-→ New. Repository permissions **Contents: write, Pull requests: write,
-Workflows: write**; install on `jfmercer/menegroth`; generate a private key
-(PEM). App ID + key → the `/ci/RENOVATE_APP_*` secrets.
+→ New. Repository permissions **Contents, Pull requests, Workflows, Issues,
+Commit statuses: read & write; Dependabot alerts: read** — exactly what
+`renovate.yml` requests for its token (a missing grant fails the mint); install
+on `jfmercer/menegroth`; generate a private key (PEM). App ID + key → the
+`/ci/RENOVATE_APP_*` secrets.
 
 ## 2. Configure the repo [you]
 

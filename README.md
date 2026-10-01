@@ -111,7 +111,7 @@ project can touch the `Menegroth` vault and nothing else.
 | **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
-| **GitHub** | a **Renovate GitHub App** (Contents + Pull requests + **Workflows**: write) installed on this repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` (→ `/ci`) |
+| **GitHub** | a **Renovate GitHub App** (Contents + Pull requests + **Workflows** + Issues + Commit statuses: write; Dependabot alerts: read) installed on this repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` (→ `/ci`) |
 
 **Why two projects:** path-scoped access control within one project is a paid
 Infisical feature. On the free plan the access boundary is *project
@@ -161,9 +161,13 @@ op service-account create menegroth-unlock   --vault "Menegroth:read_items"
 
 The **Renovate GitHub App** keeps every dependency current (`renovate.yml`
 runs it self-hosted). Create it at GitHub → **Settings → Developer settings →
-GitHub Apps → New**, grant repository **Contents: write, Pull requests: write,
-Workflows: write** (Workflows write lets it update the SHA pins inside
-`.github/workflows/`), install it on this repo, and generate a private key. Its
+GitHub Apps → New**, grant repository **Contents, Pull requests, Workflows,
+Issues, Commit statuses: read & write** and **Dependabot alerts: read**
+(Workflows write lets it update the SHA pins inside `.github/workflows/`;
+Issues backs the Dependency Dashboard; Commit statuses carries the
+`minimumReleaseAge` check), install it on this repo, and generate a private
+key. `renovate.yml` requests exactly these when minting its token, so the App
+must grant all of them. Its
 **App ID** and **private key (PEM)** become the `/ci/RENOVATE_APP_*` secrets —
 the workflow trades them for a short-lived token, so no Renovate PAT ever lives
 in GitHub secrets.

@@ -257,7 +257,10 @@ pins (`tailscale_version`, `nemoclaw_*`) to rot. Renovate covers all of them
 and the SHA-pinned nemoclaw/tailscale bumps open as standalone PRs for review.
 The workflow holds no long-lived token: it authenticates to Infisical with the
 `ci` secrets, pulls a Renovate **GitHub App** id + key from `/ci`, and mints a
-short-lived installation token — so the 3-GitHub-secret invariant (D3) holds. A full pipeline audit (2026-07-18)
+short-lived installation token — so the 3-GitHub-secret invariant (D3) holds.
+That token requests explicit `permission-*` scopes (contents, PRs, workflows,
+issues, statuses write; vulnerability-alerts read) rather than inheriting the
+App's whole grant (zizmor `github-app`). A full pipeline audit (2026-07-18)
 recorded the findings, accepted risks (e.g. the Infisical whole-job-env
 export), and deferred recommendations (saved-plan handoff, deployment
 environments, `workflow_dispatch` re-run entry points); the report is kept

@@ -53,13 +53,21 @@ jobs:
           export-type: env
 
       # Exchange the App id + private key for a short-lived installation token
-      # scoped to this repo (contents/PRs/workflows write — granted on the App).
+      # scoped to this repo. Permissions are requested explicitly so the token
+      # never inherits the App's full grant; each must also be granted on the
+      # App itself (README seed steps).
       - name: Mint Renovate App token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ env.RENOVATE_APP_ID }}
           private-key: ${{ env.RENOVATE_APP_PRIVATE_KEY }}
+          permission-contents: write # push renovate/* branches
+          permission-pull-requests: write # open/update dependency PRs
+          permission-workflows: write # bump SHA pins inside .github/workflows/
+          permission-issues: write # Dependency Dashboard issue
+          permission-statuses: write # renovate/stability-days (minimumReleaseAge) status
+          permission-vulnerability-alerts: read # advisory-driven security PRs
 
       - name: Renovate
         uses: renovatebot/github-action@3064367f740a1a91cca218698a63902689cce200 # v46.1.20
