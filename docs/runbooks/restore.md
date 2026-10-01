@@ -6,8 +6,9 @@ The server is disposable; the data volume and secrets are not on it.
 
 1. Remove the dead `menegroth-server` node from the tailnet (admin console →
    Machines) so the replacement can take the name Ansible targets.
-2. `terraform destroy -target=hcloud_server.menegroth` (volume has
-   `delete_protection` and its attachment simply follows the new server).
+2. `terraform destroy -target=hcloud_server.menegroth` (the volume and the
+   Primary IPs have `delete_protection` and simply follow the new server, so
+   the Mac agent's `SERVER_IPV4` stays valid).
 3. `terraform apply` — recreates the server from the newest FDE snapshot and
    re-attaches the volume. The first boot waits at the unlock prompt; the
    Mac agent (or console entry) unlocks it, and `tailscale-firstboot` joins

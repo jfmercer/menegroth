@@ -12,6 +12,7 @@ cd "$(dirname "$0")"
 BIN="${HOME}/.local/bin/menegroth-server-unlock"
 PLIST_DEST="${HOME}/Library/LaunchAgents/com.menegroth-server.unlock.plist"
 TOKEN_FILE="${HOME}/.config/menegroth-server-unlock/op-token"
+CONFIG="${HOME}/.config/menegroth-server-unlock/config"
 OP_VAULT="Menegroth"
 
 OP="$(command -v op || true)"
@@ -42,6 +43,59 @@ if [[ ! -f "$TOKEN_FILE" ]]; then
   printf '%s\n' "$OP_TOKEN" > "$TOKEN_FILE"
   umask 022
   unset OP_TOKEN
+fi
+
+# ---- Server address (origin verification, docs/architecture.md D11) -------
+# The agent unlocks only a boot node that answers DIRECTLY from the server's
+# own public address. Source: `terraform output` (server_ipv4 /
+# server_ipv6_network — Hetzner Primary IPs, stable across image rolls) or
+# Hetzner console -> Primary IPs. Unset = the agent fails closed (never
+# unlocks), which is expected before the first `terraform apply`.
+ip_kind() { # ip_kind <value> -> prints 4, 6net, or nothing if invalid
+  /usr/bin/python3 - "$1" <<'PY'
+import ipaddress
+import sys
+
+v = sys.argv[1]
+try:
+    if "/" in v:
+        net = ipaddress.ip_network(v, strict=False)
+        print("6net" if net.version == 6 else "")
+    else:
+        print("4" if ipaddress.ip_address(v).version == 4 else "")
+except ValueError:
+    pass
+PY
+}
+
+set_config() { # set_config KEY VALUE — replace or append one line in $CONFIG
+  local tmp
+  tmp="$(mktemp)" # 0600
+  { grep -v "^$1=" "$CONFIG" 2>/dev/null || true; printf '%s=%q\n' "$1" "$2"; } >"$tmp"
+  mv "$tmp" "$CONFIG"
+}
+
+echo "==> Server address for boot-node origin verification"
+v4="${MENEGROTH_SERVER_IPV4:-}"
+v6="${MENEGROTH_SERVER_IPV6_NET:-}"
+if [[ -z "$v4" && -t 0 ]] && ! grep -q '^SERVER_IPV4=.' "$CONFIG" 2>/dev/null; then
+  read -rp "    Server public IPv4 (terraform output server_ipv4; empty = set later): " v4
+  [[ -z "$v4" ]] || read -rp "    Server IPv6 network (terraform output server_ipv6_network; empty = none): " v6
+fi
+if [[ -n "$v4" ]]; then
+  [[ "$(ip_kind "$v4")" == 4 ]] || { echo "ERROR: '$v4' is not an IPv4 address" >&2; exit 1; }
+  set_config SERVER_IPV4 "$v4"
+fi
+if [[ -n "$v6" ]]; then
+  [[ "$(ip_kind "$v6")" == 6net ]] || { echo "ERROR: '$v6' is not an IPv6 network (e.g. 2a01:4f8:1:2::/64)" >&2; exit 1; }
+  set_config SERVER_IPV6_NET "$v6"
+fi
+if grep -q '^SERVER_IPV4=.' "$CONFIG" 2>/dev/null; then
+  grep -E '^SERVER_IPV(4|6_NET)=' "$CONFIG" | sed 's/^/    /'
+else
+  echo "    WARNING: SERVER_IPV4 not set — the agent will REFUSE every unlock until it is."
+  echo "    After the first terraform apply, re-run with MENEGROTH_SERVER_IPV4=... (and"
+  echo "    MENEGROTH_SERVER_IPV6_NET=...) exported, or edit $CONFIG."
 fi
 
 op_sa() { # run op as the service account
@@ -87,3 +141,4 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST"
 
 echo "==> Done. The agent polls every 30 s while this Mac is awake."
 echo "    Logs: ~/.local/state/menegroth-server-unlock/agent.log"
+echo "    Check what it sees: ~/.local/bin/menegroth-server-unlock --diagnose"

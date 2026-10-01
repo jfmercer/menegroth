@@ -81,12 +81,11 @@ unlock and its ntfy alerting until manually re-provided).
   OAuth client secret (D10) and the dropbear host keys. It decrypts nothing
   by itself — but anyone holding a copy of the disk (including a Hetzner
   backup or snapshot) can join the tailnet as a boot node and **impersonate
-  the unlock prompt**, and the Mac agent, which unlocks any online
-  `tag:boot-unlock` peer, would send it the root passphrase. **Open
-  hardening item:** the agent must verify the boot node is the real server
-  (e.g. its direct tailnet endpoint is the server's Hetzner IPv4) before
-  sending. Revoking the OAuth client cuts off a leaked copy; tailnet ACLs
-  still restrict the tag to *receiving* port 22 from the user's devices.
+  the unlock prompt**. The Mac agent therefore never trusts the tag: it
+  sends the passphrase only to a boot node that answers over a direct path
+  from the server's own public address (D11). Revoking the OAuth client cuts
+  off a leaked copy; tailnet ACLs still restrict the tag to *receiving* port
+  22 from the user's devices.
 - ⚠️ Kernel updates rebuild the initramfs; the tailscale hook re-embeds the
   unlock path each time. The kernel-update survival test in `packer/README.md`
   is mandatory after image changes.
@@ -374,6 +373,42 @@ the server's metadata endpoint (readable by any process on the box); an
 Ansible "bootstrap mode" over the public IP — rejected: needs the dark
 host's firewall opened to the CI runner and a second connection path to
 maintain.
+
+### D11 — The Mac agent verifies the boot node's network origin
+
+*(2026-10-01.)* The boot node's tailnet credential and dropbear host keys
+live on the unencrypted `/boot` (D2), so anyone with a copy of the disk
+(a Hetzner backup, a snapshot, the disk itself) can run an impostor boot node
+on the tailnet. The agent used to unlock any online `tag:boot-unlock` peer
+and accepted any host key for a new IP, so it would have sent the root
+passphrase to the impostor, defeating encryption at rest.
+
+**Decision:** before sending anything, the agent runs
+`tailscale ping --until-direct` to each candidate and requires the pong to
+arrive over a **direct** path from the server's own public address
+(`SERVER_IPV4` / `SERVER_IPV6_NET`, from Terraform). A disco pong is
+authenticated with the peer's key and must be *received* at that address,
+so even an attacker who can spoof source IPs can't produce it without being
+on-path at Hetzner. Outcomes:
+**verified** → unlock; **unverified** (relay only, no reply) → safe refusal,
+alert after 3 min; **mismatch** → possible impersonation, urgent alert. The
+agent fails closed with no address configured. The server's public IPs
+become Hetzner **Primary IPs** (`auto_delete = false`, delete-protected), so
+they survive `-replace` image rolls and the check needs no per-roll upkeep.
+A human fallback that can't be impersonated always exists, the Hetzner
+console (`docs/troubleshooting.md` §8), and manual SSH unlocks must pass the
+same origin check first.
+
+*Alternatives considered:* pin the dropbear host key — rejected: the
+host keys are on `/boot` too, so a disk copy carries them; check the Hetzner
+API for a recent reboot — rejected as the primary control: it only narrows
+the time window, an attacker can wait for a real reboot, and it puts a Hetzner
+token on the Mac; Tailscale `CurAddr` from `tailscale status` alone —
+rejected: it can be set by WireGuard roaming from a spoofed source address,
+whereas a disco pong proves two-way reachability; remove the `/boot`
+credential (console-only unlock) — rejected: it gives up hands-free reboots,
+the point of D2. *Cost:* if the Mac's network only allows relayed Tailscale
+paths, unlocks wait for a direct path or the console.
 
 ## Provisioning flow
 

@@ -48,8 +48,11 @@ Key properties:
   built by the `packer/` pipeline; unencrypted `/boot` only) and the data
   volume is LUKS2. At boot the initramfs joins the tailnet as an ephemeral
   `tag:boot-unlock` node and a launchd agent on your Mac (`macos/`) delivers
-  the passphrase from 1Password automatically — reboots are hands-free
-  while your Mac is awake, and the Hetzner console is the manual fallback.
+  the passphrase from 1Password automatically, but only after verifying the
+  boot node answers directly from the server's own public IP (a disk copy
+  can't impersonate it). Reboots are hands-free while your Mac is awake; the
+  Hetzner console is the manual fallback
+  ([docs/troubleshooting.md](docs/troubleshooting.md)).
 - **Dark host.** The Hetzner Cloud Firewall drops all inbound traffic. SSH and
   every service are reachable only over the tailnet (Tailscale requires no
   inbound ports). Break-glass access is the Hetzner web console — see
@@ -81,7 +84,7 @@ macos/                Mac unlock agent (launchd + 1Password + ntfy)
 scripts/bootstrap/    One-time bootstrap automation + preflight validator
 .github/workflows/    terraform, ansible, packer, shellcheck, zizmor, codeql, renovate
 scripts/ci/           CI helpers (template rendering + shellcheck)
-docs/                 architecture.md, verification.md, runbooks/
+docs/                 architecture.md, troubleshooting.md, verification.md, runbooks/
 ```
 
 ## One-time bootstrap

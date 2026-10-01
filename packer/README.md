@@ -66,20 +66,29 @@ cd packer && packer init . && packer build .
 
 ## Verifying a new image (throwaway server, before Phase 9 rollout)
 
+0. **Pause the Mac unlock agent** for the test, because it will rightly treat
+   the throwaway's boot node (a different IP) as possible impersonation:
+   `launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.menegroth-server.unlock.plist`
+   (re-enable afterwards with `launchctl bootstrap` and the same arguments).
 1. Create a server from the snapshot in the Hetzner console (give it a
    throwaway name; it will still join as `menegroth-server` — delete that
    node from the tailnet afterwards if production is already running).
 2. Watch the tailnet: a `menegroth-server-boot` node appears within ~1
    minute (proves DNS + CA roots + OAuth exchange work in the initramfs).
-3. `ssh root@<boot-node>` from an authorized device → forced
-   `cryptroot-unlock` prompts → server boots; the boot node disappears, and
+3. **Prove the boot node's origin before sending the passphrase:**
+   `tailscale ping --until-direct <boot-node-tailnet-ip>` must end with
+   `via <throwaway's public IPv4>:<port>`, matching the IP the Hetzner console
+   shows for the throwaway. This is the check the agent automates
+   (`docs/troubleshooting.md`). Only then `ssh root@<boot-node-tailnet-ip>` →
+   forced `cryptroot-unlock` prompts → server boots; the boot node disappears, and
    a `tag:server` node joins (first-boot unit); on the server,
    `/etc/tailscale-firstboot/authkey` is gone.
-4. Reboot and unlock via the Hetzner web console instead (type passphrase).
+4. Reboot and unlock via the Hetzner web console instead, following
+   `docs/troubleshooting.md` §8.
 5. `apt install --reinstall linux-image-generic` (forces initramfs rebuild),
    reboot, confirm the tailnet join still works — this is the kernel-update
    survival test.
-6. Delete the throwaway server.
+6. Delete the throwaway server; re-enable the Mac agent (step 0).
 
 ## Notes
 

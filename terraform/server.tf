@@ -12,6 +12,26 @@ data "hcloud_image" "fde" {
   with_architecture = "x86"
 }
 
+# Stable public addresses. The Mac unlock agent only unlocks a boot node that
+# answers directly from the server's own public address (D11), so that
+# address must survive `terraform apply -replace` image rolls: Primary IPs
+# with auto_delete = false outlive the server they are assigned to.
+resource "hcloud_primary_ip" "v4" {
+  name              = "${var.server_name}-v4"
+  type              = "ipv4"
+  location          = var.location
+  auto_delete       = false
+  delete_protection = true
+}
+
+resource "hcloud_primary_ip" "v6" {
+  name              = "${var.server_name}-v6"
+  type              = "ipv6"
+  location          = var.location
+  auto_delete       = false
+  delete_protection = true
+}
+
 resource "hcloud_server" "menegroth" {
   name         = var.server_name
   server_type  = var.server_type
@@ -32,7 +52,9 @@ resource "hcloud_server" "menegroth" {
 
   public_net {
     ipv4_enabled = true
+    ipv4         = hcloud_primary_ip.v4.id
     ipv6_enabled = true
+    ipv6         = hcloud_primary_ip.v6.id
   }
 
   # user_data: cloud-init edits would force replacement; Ansible owns

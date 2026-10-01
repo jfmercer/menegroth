@@ -102,7 +102,13 @@ on `jfmercer/menegroth`; generate a private key (PEM). App ID + key → the
 12. Dispatch the **Packer FDE image** workflow (`workflow_dispatch`) → builds the
     LUKS2-root snapshot. (A pre-snapshot `terraform apply` on the master merge
     fails with "no fde=true snapshot" — expected; re-runs green once built.)
-13. Let `terraform apply` + `ansible` run on the master push; verify per
+13. Let `terraform apply` run on the master push. Then **configure the Mac
+    agent with the server's address** (until then it safely refuses to
+    unlock): take `server_ipv4` / `server_ipv6_network` from the apply log's
+    outputs, `export MENEGROTH_SERVER_IPV4=… MENEGROTH_SERVER_IPV6_NET=…`, and
+    re-run `macos/install.sh`. The agent then unlocks the waiting server,
+    which joins the tailnet on first boot; re-run the Ansible workflow if
+    its first attempt ran before the server was reachable. Verify per
     `docs/verification.md`.
 
 ## 7. Revoke [you]

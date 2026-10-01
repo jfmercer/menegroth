@@ -59,6 +59,9 @@ a boot node is actually online — the routine 30 s poll makes no API calls
 
 ```bash
 export MENEGROTH_OP_UNLOCK_TOKEN=...   # menegroth-unlock token (or paste at the prompt)
+# The server's stable public addresses (terraform outputs server_ipv4 /
+# server_ipv6_network). Leave unset before the first apply; re-run after it.
+export MENEGROTH_SERVER_IPV4=... MENEGROTH_SERVER_IPV6_NET=...
 cd macos && ./install.sh
 ```
 
@@ -71,12 +74,25 @@ survives Mac reboots, so there is nothing to re-run afterwards.
 
 ## Behavior details
 
+- **Origin verification (D11).** A `tag:boot-unlock` tag alone proves
+  nothing (its credential is on the unencrypted `/boot`), so before sending
+  anything the agent runs `tailscale ping --until-direct` and requires the
+  reply to come over a direct path from the server's own public address
+  (`SERVER_IPV4` / `SERVER_IPV6_NET` in
+  `~/.config/menegroth-server-unlock/config`, set by `install.sh` from the
+  Terraform outputs). A relayed-only path is a **safe refusal** (alert after
+  3 min, keeps retrying). A direct path from any other address is treated as
+  **possible impersonation** (urgent alert). Neither ever sends the passphrase,
+  and with no `SERVER_IPV4` the agent never unlocks. What to do in each case:
+  `docs/troubleshooting.md`.
+- `menegroth-server-unlock --diagnose` prints what the agent sees and would
+  decide, read-only (no 1Password, nothing sent).
 - Cooldown of 120 s between attempts so a slow pivot isn't hammered.
 - First connection pins the boot node's dropbear host key (`accept-new` into
   `~/.local/state/menegroth-server-unlock/known_hosts`); after an image rebuild,
   prune that file — an *unexpected* host-key failure deserves suspicion.
 - If the Mac is asleep, the server just waits at the prompt; console
-  fallback: `docs/runbooks/break-glass.md` §0.
+  fallback: `docs/troubleshooting.md` §8.
 - State/logs: `~/.local/state/menegroth-server-unlock/` (`agent.log`, `unlock.log`).
 
 ## Rotation & revocation

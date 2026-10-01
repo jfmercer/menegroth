@@ -59,6 +59,9 @@ terraform apply -replace=hcloud_server.menegroth
 #    Ansible workflow (Actions → Ansible → Re-run) to provision it.
 ```
 
+The public IPs are Hetzner **Primary IPs** that survive the replacement, so
+the Mac agent's origin check (`SERVER_IPV4`) keeps working with no change.
+
 **After any image roll:** the new image carries freshly generated dropbear
 host keys. The Mac unlock agent pins host keys by boot-node IP in
 `~/.local/state/menegroth-server-unlock/known_hosts`

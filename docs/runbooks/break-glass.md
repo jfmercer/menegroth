@@ -6,14 +6,11 @@ lock you out, use one of these paths — in order.
 
 ## 0. Server stuck at the boot unlock prompt
 
-If the server rebooted and nothing unlocked it (Mac offline, initramfs
-tailnet join failed):
-
-1. <https://console.hetzner.cloud> → `menegroth-server` → **Console** (>_ icon).
-2. The screen shows the `cryptsetup` passphrase prompt for `root_crypt`.
-3. Type the root passphrase (recovery copy: Infisical `/unlock/ROOT_LUKS_KEY`).
-4. Boot continues normally; investigate why the agent didn't fire
-   (`macos/README.md` troubleshooting).
+If the server rebooted and nothing unlocked it (Mac offline, the agent
+safely refused an unverifiable boot node, the initramfs tailnet join failed),
+follow **`docs/troubleshooting.md`**. Its §8 is the secure manual unlock via
+the Hetzner console, and the rest of that page finds the cause. Never type
+the passphrase into an SSH session to a boot node by hand.
 
 ## 1. Hetzner web console (always works)
 

@@ -96,6 +96,17 @@ else
   if op_read_check "op://$OP_VAULT/ntfy/url"; then pass "ntfy/url"; else fail "ntfy/url unreadable"; fi
 fi
 
+# ---- Mac unlock agent: server address (D11) ---------------------------------
+# The agent only unlocks a boot node answering from the server's Primary IP.
+# Before the first terraform apply the IP doesn't exist yet — WARN, not FAIL.
+step "Mac unlock agent — server address for origin verification"
+agent_config="$HOME/.config/menegroth-server-unlock/config"
+if grep -q '^SERVER_IPV4=.' "$agent_config" 2>/dev/null; then
+  pass "SERVER_IPV4 set in $agent_config"
+else
+  warn "SERVER_IPV4 not set — expected before the first apply; the agent refuses every unlock until macos/install.sh records it (docs/troubleshooting.md §5)"
+fi
+
 # ---- Tailscale --------------------------------------------------------------
 step "Tailscale — ACL owns the three tags"
 if command -v curl >/dev/null 2>&1 && [[ -n "${TS_API_TOKEN:-}" ]]; then
