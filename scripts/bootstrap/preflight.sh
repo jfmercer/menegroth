@@ -35,9 +35,9 @@ fi
 
 # ---- Infisical --------------------------------------------------------------
 step "Infisical — required secrets by exact name"
-CI_KEYS="HCLOUD_TOKEN TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TS_SERVER_AUTHKEY SSH_PRIVATE_KEY ADMIN_SSH_PUBLIC_KEY SERVER_IDENTITY_CLIENT_ID SERVER_IDENTITY_CLIENT_SECRET RENOVATE_APP_ID RENOVATE_APP_PRIVATE_KEY"
-SERVER_KEYS="DATA_VOLUME_LUKS_KEY NTFY_TOPIC_URL"
-UNLOCK_KEYS="ROOT_LUKS_KEY TS_BOOT_AUTHKEY MAC_UNLOCK_SSH_PUBKEY"
+CI_KEYS="HCLOUD_TOKEN TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TS_SERVER_OAUTH_SECRET SSH_PRIVATE_KEY ADMIN_SSH_PUBLIC_KEY SERVER_IDENTITY_CLIENT_ID SERVER_IDENTITY_CLIENT_SECRET RENOVATE_APP_ID RENOVATE_APP_PRIVATE_KEY"
+SERVER_KEYS="DATA_VOLUME_LUKS_KEY NTFY_TOPIC_URL HEARTBEAT_URL"
+UNLOCK_KEYS="ROOT_LUKS_KEY TS_BOOT_OAUTH_SECRET MAC_UNLOCK_SSH_PUBKEY"
 if command -v infisical >/dev/null 2>&1 && [[ -n "${INFISICAL_PROJECT_ID:-}" && "${INFISICAL_PROJECT_ID:-}" != "REPLACE_WITH_PROJECT_ID" ]] \
   && infisical secrets --projectId="$INFISICAL_PROJECT_ID" --env="$INFISICAL_ENV" --path=/ci --domain="$INFISICAL_DOMAIN" >/dev/null 2>&1; then
   check_path() { # check_path <path> <keys...>
@@ -51,6 +51,19 @@ if command -v infisical >/dev/null 2>&1 && [[ -n "${INFISICAL_PROJECT_ID:-}" && 
   check_path /ci $CI_KEYS
   # shellcheck disable=SC2086
   check_path /unlock $UNLOCK_KEYS
+  # D10: the two image-embedded tailnet credentials must be non-expiring
+  # OAuth client secrets — an auth key would silently die after 90 days.
+  for pk in /ci:TS_SERVER_OAUTH_SECRET /unlock:TS_BOOT_OAUTH_SECRET; do
+    v="$(infisical_get "${pk%%:*}" "${pk#*:}")"
+    if [[ -z "$v" ]]; then
+      :  # already reported missing above
+    elif [[ "$v" == tskey-client-* ]]; then
+      pass "${pk%%:*}/${pk#*:} is an OAuth client secret"
+    else
+      fail "${pk%%:*}/${pk#*:} is not an OAuth client secret (tskey-client-...) — auth keys expire"
+    fi
+  done
+  unset v
   # /server lives in a SEPARATE project (D8); check_path routes it via
   # INFISICAL_SERVER_PROJECT_ID. Guard it so an unset id is a clear FAIL, not a
   # confusing "missing/empty" on every /server key.

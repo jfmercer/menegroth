@@ -10,7 +10,7 @@
 #
 #   phases (default: all, in this order):
 #     10-onepassword   1Password vault, items, unlock SSH key, service account
-#     20-tailscale     ACL push + server/boot auth keys
+#     20-tailscale     tailnet ACL push
 #     30-infisical     generate + store all /ci /server /unlock secrets
 #     40-github        the three GitHub secrets + TF_CLOUD_ORGANIZATION variable
 #

@@ -28,21 +28,23 @@
     state: started
     enabled: true
 
+# The tailnet JOIN happens on first boot, from the image (Packer
+# tailscale-firstboot, D10): the host is dark and this play connects over
+# the tailnet, so by the time it runs the node is already joined. This role
+# only keeps the package current and the node configured.
 - name: Read Tailscale backend state
   ansible.builtin.command: tailscale status --json
   register: tailscale_status
   changed_when: false
   failed_when: false
 
-- name: Join the tailnet (first run only)
-  ansible.builtin.command: >-
-    tailscale up
-    --auth-key={{ tailscale_authkey }}
-    --hostname={{ tailscale_hostname }}
-    --ssh
-  when: (tailscale_status.stdout | from_json).BackendState | default('NoState') != 'Running'
-  no_log: true # never print the auth key
-  changed_when: true
+- name: Assert the node is on the tailnet
+  ansible.builtin.assert:
+    that: (tailscale_status.stdout | default('{}', true) | from_json).BackendState | default('NoState') == 'Running'
+    fail_msg: >-
+      tailscaled is not Running. A fresh server should have joined via
+      tailscale-firstboot.service — check `journalctl -u tailscale-firstboot`
+      (docs/runbooks/break-glass.md).
 
 - name: Ensure Tailscale SSH stays enabled
   ansible.builtin.command: tailscale set --ssh

@@ -40,6 +40,11 @@ after any significant change). They mirror the build phases.
 - [ ] The boot node disappears from the tailnet after pivot (ephemeral +
       logout), and `tailscale status` on the running server shows only the
       real node.
+- [ ] Fresh server (first deploy or image roll): it joins the tailnet as
+      `menegroth-server` with no manual step, and
+      `/etc/tailscale-firstboot/authkey` no longer exists.
+- [ ] Credentials don't expire: preflight reports both
+      `TS_*_OAUTH_SECRET`s as OAuth client secrets (`tskey-client-…`).
 - [ ] Server identity CANNOT read `/unlock`: `sudo infisical-get ROOT_LUKS_KEY`
       on the server must FAIL.
 
@@ -65,6 +70,9 @@ after any significant change). They mirror the build phases.
 
 - [ ] Force an alert: `sudo systemctl start server-healthcheck.service` with
       tailscaled stopped → ntfy notification arrives; restart tailscaled.
+- [ ] Dead-man heartbeat: the monitor shows a ping every ~15 min; `sudo
+      systemctl stop server-healthcheck.timer` for longer than the grace
+      period → the monitor alerts; re-start the timer.
 - [ ] Hetzner console shows daily server backups enabled.
 - [ ] If restic is enabled: `restic snapshots` lists last night's backup, and
       a test `restic restore latest --target /tmp/restore-drill` succeeds.

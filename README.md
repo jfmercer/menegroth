@@ -89,7 +89,7 @@ The bootstrap is scripted (`scripts/bootstrap/`). It has two parts: create a
 small set of **seed credentials** by hand — the accounts/tokens that
 *authenticate the automation*, so they can't be automated away — then run the
 script, which generates and stores everything else (root/data LUKS keys, the
-admin SSH key, the Tailscale ACL and join keys, the 1Password vault) into
+admin SSH key, the Tailscale ACL, the 1Password vault items) into
 Infisical, 1Password, and GitHub. A condensed, tick-through version of the
 steps below lives in
 [docs/runbooks/bootstrap-checklist.md](docs/runbooks/bootstrap-checklist.md).
@@ -108,7 +108,8 @@ project can touch the `Menegroth` vault and nothing else.
 |---|---|---|
 | **HCP Terraform** | org + workspace `menegroth`, execution mode **Local**; a user/team API token | `TF_API_TOKEN` (GitHub) |
 | **Infisical** (EU, `eu.infisical.com`) | **two** projects (`menegroth` + a server project) + two universal-auth machine identities (below) | GitHub secrets + `/ci` |
-| **Tailscale** | an **API access token**; a `tag:ci` **OAuth client** (`auth_keys` scope) | `TS_API_TOKEN` (script); `TS_OAUTH_*` (→ `/ci`) |
+| **Tailscale** | an **API access token**; then — *after* phase 20 pushes the ACL — three **OAuth clients**, each `auth_keys` scope + one tag: `tag:ci`, `tag:server`, `tag:boot-unlock` | `TS_API_TOKEN` (script); `TS_OAUTH_*`, `TS_SERVER_OAUTH_SECRET` (→ `/ci`); `TS_BOOT_OAUTH_SECRET` (→ `/unlock`) |
+| **Dead-man monitor** | a check at [healthchecks.io](https://healthchecks.io) (or any service that alerts when pings stop): period 15 min, grace ~45 min, alerting to your ntfy topic/phone | `HEARTBEAT_URL` (→ `/server`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
 | **GitHub** | a **Renovate GitHub App** (Contents + Pull requests + **Workflows** + Issues + Commit statuses: write; Dependabot alerts: read) installed on this repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` (→ `/ci`) |
@@ -172,8 +173,14 @@ must grant all of them. Its
 the workflow trades them for a short-lived token, so no Renovate PAT ever lives
 in GitHub secrets.
 
-You do **not** create the ACL, the auth keys, the LUKS keys, the admin SSH key,
-or the 1Password items by hand — the script does all of that.
+**Why OAuth clients, not auth keys:** Tailscale auth keys expire after at most
+90 days; the server and boot-node credentials are baked into the image, so an
+expiring key would silently break reboots and rebuilds. OAuth client secrets
+don't expire (`docs/architecture.md` D10). The scripts reject `tskey-auth-…`
+values for those two seeds.
+
+You do **not** create the ACL, the LUKS keys, the admin SSH key, or the
+1Password items by hand — the script does all of that.
 
 ### 2. Configure and run
 
@@ -184,20 +191,28 @@ $EDITOR bootstrap.env                 # set INFISICAL_PROJECT_ID + INFISICAL_SER
 
 # Provide the seed secrets in your shell (see the SEEDS block in the .env):
 export MENEGROTH_OP_BOOTSTRAP_TOKEN=...  # menegroth-bootstrap service account
-export HCLOUD_TOKEN=... TS_API_TOKEN=... TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...
+export HCLOUD_TOKEN=... TS_API_TOKEN=...
 export TF_API_TOKEN=... INFISICAL_CLIENT_ID=... INFISICAL_CLIENT_SECRET=...
 export SERVER_IDENTITY_CLIENT_ID=... SERVER_IDENTITY_CLIENT_SECRET=...
 export RENOVATE_APP_ID=... RENOVATE_APP_PRIVATE_KEY="$(cat renovate-app.pem)"
 
 ./bootstrap.sh --dry-run              # preview — touches nothing
-./bootstrap.sh                        # create/store everything (idempotent; safe to re-run)
+./bootstrap.sh 10-onepassword 20-tailscale   # vault items + tailnet ACL (defines the tags)
+
+# Now create the three Tailscale OAuth clients (admin console → Settings →
+# OAuth clients; auth_keys scope; one tag each) and export their secrets:
+export TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...   # tag:ci
+export TS_SERVER_OAUTH_SECRET=tskey-client-...       # tag:server
+export TS_BOOT_OAUTH_SECRET=tskey-client-...         # tag:boot-unlock
+export HEARTBEAT_URL=https://hc-ping.com/...         # dead-man monitor
+
+./bootstrap.sh 30-infisical 40-github   # store everything (idempotent; safe to re-run)
 ```
 
 The four phases (1Password → Tailscale → Infisical → GitHub) push the tailnet
-ACL, mint the `tag:server` and `tag:boot-unlock` keys, generate the LUKS and
-admin SSH keys, and store every secret at its exact path/name — with all
-1Password access running as the vault-scoped `menegroth-bootstrap` service
-account. Then load the Mac unlock agent:
+ACL, generate the LUKS and admin SSH keys, and store every secret at its
+exact path/name — with all 1Password access running as the vault-scoped
+`menegroth-bootstrap` service account. Then load the Mac unlock agent:
 
 ```bash
 export MENEGROTH_OP_UNLOCK_TOKEN=...  # menegroth-unlock service account (or paste at the prompt)

@@ -18,7 +18,8 @@ cd terraform && terraform fmt -check -recursive && terraform init -backend=false
 cd packer && packer init . && packer fmt -check . && \
   HCLOUD_TOKEN=dummy packer validate \
     -var root_luks_passphrase=placeholder \
-    -var boot_tailscale_authkey=placeholder \
+    -var boot_tailscale_oauth_secret=tskey-client-placeholder \
+    -var server_tailscale_oauth_secret=tskey-client-placeholder \
     -var 'mac_unlock_ssh_pubkey=ssh-ed25519 AAAAplaceholder ci-validate' .
 
 # Ansible — the controller toolchain (ansible-core, ansible-lint) is uv-managed
@@ -57,9 +58,9 @@ Only three GitHub secrets exist (`TF_API_TOKEN`, `INFISICAL_CLIENT_ID`, `INFISIC
 
 Full rationale and decision log: `docs/architecture.md`. The layers compose in this order:
 
-1. **Packer** (`packer/`) builds an Ubuntu 26.04 snapshot with a LUKS2-encrypted root from the Hetzner rescue system. Its initramfs embeds static tailscale binaries + dropbear (key-only, forced `cryptroot-unlock` command) so the machine can be unlocked remotely at boot.
+1. **Packer** (`packer/`) builds an Ubuntu 26.04 snapshot with a LUKS2-encrypted root from the Hetzner rescue system. Its initramfs embeds static tailscale binaries + dropbear (key-only, forced `cryptroot-unlock` command) so the machine can be unlocked remotely at boot, and `tailscale-firstboot.service` joins a fresh server to the tailnet so Ansible can reach it (D10).
 2. **Terraform** (`terraform/`) boots the server from the newest `fde=true` snapshot. `lifecycle.ignore_changes = [image, user_data]` means new snapshots do NOT auto-replace the server — roll deliberately with `terraform apply -replace=hcloud_server.menegroth`.
-3. **Ansible** (`ansible/site.yml`) provisions in strict role order: `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`. Later roles depend on earlier ones (e.g. `luks_volume` needs `/usr/local/bin/infisical-get`; `nemoclaw` asserts `/data` is mounted).
+3. **Ansible** (`ansible/site.yml`) provisions in strict role order: `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`. Later roles depend on earlier ones (e.g. `luks_volume` needs `/usr/local/bin/infisical-get`; `nemoclaw` asserts `/data` is mounted). The `tailscale` role does not join the tailnet — the image does; the role asserts the node is Running.
 4. **Mac unlock agent** (`macos/`) — a launchd job polling every 30 s. When the server reboots, its initramfs joins the tailnet as an ephemeral `tag:boot-unlock` node; the agent detects it, reads the passphrase from 1Password, and pipes it over SSH into `cryptroot-unlock`.
 
 ### Security invariants (do not weaken)
@@ -67,6 +68,7 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 - **Split key custody:** the `server` Infisical identity can read `/server/*` only. The root LUKS passphrase lives in 1Password (primary) and Infisical `/unlock/*` (recovery) — paths the server identity must **never** be granted. The server cannot unlock itself. On the free plan this is enforced by putting `/server` in a **separate Infisical project** (member: `server` identity) from `/ci`+`/unlock` (member: `ci` identity), since path-scoped roles are paid — see `docs/architecture.md` D8. Never add the `server` identity to the CI/unlock project.
 - **Dark host:** the Hetzner firewall has no inbound rules (the `bootstrap_admin_ip_cidr` variable opens SSH only during initial buildout); ufw mirrors default-deny with `tailscale0` allowed.
 - **Secrets never touch disk:** keys are streamed via stdin (`--key-file=-`), secret-bearing Ansible tasks use `no_log`, and the Mac agent materializes its SSH key only in a trap-cleaned mktemp dir.
+- **Non-expiring tailnet credentials:** the `tag:server` and `tag:boot-unlock` credentials baked into the image are Tailscale OAuth client secrets (`tskey-client-…`), never auth keys (which expire after ≤90 days and would silently break reboots/rebuilds) — Packer, bootstrap, and preflight enforce this (D10).
 - **Deliberate pins:** the NemoClaw installer is fetched by commit SHA (`nemoclaw_install_commit`, paired with `nemoclaw_install_tag` in `ansible/roles/nemoclaw/defaults/main.yml` — bump both together); `tailscale_version` in Packer pins the initramfs binaries.
 - The `luks_volume` role refuses to format any device where `blkid` detects an existing signature — keep that guard.
 
@@ -74,6 +76,7 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 
 - Kernel updates rebuild the initramfs; `packer/files/initramfs/tailscale-hook` re-embeds the unlock path each time. After changing anything under `packer/`, the kernel-update survival test in `packer/README.md` is mandatory.
 - Every image roll regenerates dropbear host keys; the Mac agent pins them in `~/.local/state/menegroth-server-unlock/known_hosts` (see `docs/runbooks/key-rotation.md`).
+- Before any image roll / server replacement, remove the old `menegroth-server` node from the tailnet: the new server's first-boot join otherwise becomes `menegroth-server-1`, and Ansible (MagicDNS `menegroth-server`) keeps targeting the dead node.
 - Unattended-upgrade reboots are scheduled in Mac-awake hours (`unattended_reboot_time` in `ansible/group_vars/all.yml`) because a reboot only completes while an unlocker is reachable.
 - Ansible templates (`*.j2`) are mostly shell scripts — keep them `set -euo pipefail` and shellcheck-clean like the existing ones.
 

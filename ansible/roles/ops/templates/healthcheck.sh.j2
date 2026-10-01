@@ -39,6 +39,14 @@ if [[ -f "$events" ]]; then
   echo "$ooms" >"$seen_file"
 fi
 
+# Dead-man heartbeat (D10): ping on EVERY run. The external monitor alerts
+# when pings STOP — the only signal for a server that never came back from
+# a reboot (stuck at the unlock prompt, failed boot-node join, or down), when
+# neither this script nor the Mac agent's boot-node alerts can fire.
+heartbeat_url="$(/usr/local/bin/infisical-get {{ ops_heartbeat_secret }} 2>/dev/null)" \
+  && curl -fsS -m 10 --retry 3 "$heartbeat_url" >/dev/null \
+  || echo "healthcheck: heartbeat ping failed (the monitor will alert if this persists)" >&2
+
 # (No array-length expansion here: its brace-hash opens a Jinja comment.)
 [[ -z "${problems[*]-}" ]] && exit 0
 

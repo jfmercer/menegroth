@@ -1,6 +1,6 @@
 # Architecture & Decision Log
 
-Last updated: 2026-07-16
+Last updated: 2026-10-01
 
 ## Goal
 
@@ -77,11 +77,16 @@ unlock and its ntfy alerting until manually re-provided).
   disks, Hetzner disk disposal — for root *and* data.
 - ⚠️ A live-compromised hypervisor can still read RAM (keys included). FDE on
   a cloud VM protects data at rest, not against a live host-level adversary.
-- ⚠️ On unencrypted `/boot`: the initramfs contains the boot node's tailnet
-  auth key. A disk thief cannot decrypt anything with it, but could
-  impersonate the boot prompt until the key is revoked; tailnet ACLs restrict
-  the tag to *receiving* port 22 from the user's devices only. Rotate by
-  rebuilding the image (revoke old key in the admin console).
+- ⚠️ On unencrypted `/boot`: the initramfs contains the `tag:boot-unlock`
+  OAuth client secret (D10) and the dropbear host keys. It decrypts nothing
+  by itself — but anyone holding a copy of the disk (including a Hetzner
+  backup or snapshot) can join the tailnet as a boot node and **impersonate
+  the unlock prompt**, and the Mac agent, which unlocks any online
+  `tag:boot-unlock` peer, would send it the root passphrase. **Open
+  hardening item:** the agent must verify the boot node is the real server
+  (e.g. its direct tailnet endpoint is the server's Hetzner IPv4) before
+  sending. Revoking the OAuth client cuts off a leaked copy; tailnet ACLs
+  still restrict the tag to *receiving* port 22 from the user's devices.
 - ⚠️ Kernel updates rebuild the initramfs; the tailscale hook re-embeds the
   unlock path each time. The kernel-update survival test in `packer/README.md`
   is mandatory after image changes.
@@ -111,7 +116,9 @@ separate server project (member: `server` identity) holds `/server`:
 /ci/TS_OAUTH_CLIENT_ID     Tailscale OAuth client (CI runner tailnet join)
 /ci/TS_OAUTH_SECRET
 /ci/SSH_PRIVATE_KEY        Ansible bootstrap key (phases 1–2 only; Tailscale SSH after)
-/ci/TS_SERVER_AUTHKEY      Pre-authorized reusable auth key (tag:server) for the server's first tailnet join
+/ci/ADMIN_SSH_PUBLIC_KEY   Its public half (TF_VAR_admin_ssh_public_key in CI)
+/ci/TS_SERVER_OAUTH_SECRET tag:server OAuth client secret — baked onto the
+                           encrypted root for the first-boot join (D10)
 /ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
 /ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
 /ci/RENOVATE_APP_ID                Renovate GitHub App — exchanged in renovate.yml
@@ -119,12 +126,13 @@ separate server project (member: `server` identity) holds `/server`:
 /unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
                            the Mac's 1Password vault). NOT readable by the server identity.
 /unlock/MAC_UNLOCK_SSH_PUBKEY  Public half of the Mac unlock key (embedded at image build)
-/unlock/TS_BOOT_AUTHKEY    Ephemeral pre-authorized tailnet key for the initramfs
-                           boot node (embedded at image build time)
+/unlock/TS_BOOT_OAUTH_SECRET  tag:boot-unlock OAuth client secret for the initramfs
+                           boot node (embedded at image build time; D10)
 
 # Server project (separate) — read by the `server` identity only
 /server/DATA_VOLUME_LUKS_KEY
 /server/NTFY_TOPIC_URL     Alerting destination
+/server/HEARTBEAT_URL      Dead-man ping URL (external monitor alerts when pings stop; D10)
                            (LLM provider keys also go under /server if/when
                            NemoClaw inference is configured — see the
                            nemoclaw role's nemoclaw_provider_key_* vars)
@@ -189,10 +197,11 @@ Tailnet policy needed (configured in the Tailscale admin console):
 ```
 
 This policy is applied by `scripts/bootstrap/20-tailscale.sh` (POST to
-`/api/v2/tailnet/-/acl`), which also mints the `tag:server` and
-`tag:boot-unlock` auth keys and stores them at `/ci/TS_SERVER_AUTHKEY` and
-`/unlock/TS_BOOT_AUTHKEY`. The `tag:ci` OAuth client is the one Tailscale object
-with no creation API, so it stays a hand-made seed credential.
+`/api/v2/tailnet/-/acl`). Every tailnet credential is an **OAuth client**
+restricted to a single tag with the `auth_keys` scope, created by hand as a
+seed (after the ACL defines the tags): `tag:ci` for the CI runner,
+`tag:server` for the first-boot join, and `tag:boot-unlock` for the initramfs
+(D10). Nothing in the repo uses expiring auth keys.
 
 ### D5 — Agent runtime: NVIDIA NemoClaw on OpenShell
 
@@ -317,10 +326,59 @@ uv must never be a dependency in the boot-unlock critical path.
 (the prior approach) — rejected: unpinned and non-reproducible, and the direct
 source of the version drift the repo has repeatedly hit.
 
+### D10 — Non-expiring tailnet credentials; fresh servers join on first boot
+
+*(2026-10-01.)* Two gaps in the original design: (1) the boot-unlock auth key
+baked into the image was a Tailscale **auth key**, which expires after at most
+90 days — after that every reboot would sit at the unlock prompt with no boot
+node for the Mac agent to see, and no alert from anywhere; (2) a **fresh
+server** (first deploy, `-replace` image roll, restore) could never be
+provisioned: the host is dark, Ansible connects only over the tailnet, and
+only the Ansible `tailscale` role joined the tailnet.
+
+**Decision:**
+
+- Both image-embedded credentials are Tailscale **OAuth client secrets**
+  (`tskey-client-…`, `auth_keys` scope, one tag each). They don't expire;
+  `tailscale up --auth-key=file:…?ephemeral=…&preauthorized=true
+  --advertise-tags=…` mints a short-lived key from them at join time.
+  Packer, bootstrap, and preflight reject anything else.
+- The image ships the tailscale package plus `tailscale-firstboot.service`,
+  which joins the real system as `tag:server` (`menegroth-server`, Tailscale
+  SSH on) on first boot and then deletes its credential. That credential
+  lives only on the **encrypted** root. The Ansible `tailscale` role no
+  longer joins; it asserts the node is Running and keeps it configured.
+- A **dead-man heartbeat**: the 15-minute healthcheck pings
+  `/server/HEARTBEAT_URL` on every run, and an external monitor
+  (healthchecks.io-style) alerts when pings stop — the one signal that covers
+  a server that never came back from a reboot.
+- The initramfs join is bounded (`--timeout`, ~3 min worst case) so a
+  Tailscale outage can't hide the console passphrase prompt.
+
+**Consequences:** the initramfs CLI now calls `api.tailscale.com` to mint the
+boot key, so the hook embeds CA roots and the premount script writes a
+`resolv.conf` (DHCP resolvers, Hetzner's as fallback) — verify on every image
+build (`packer/README.md`). The `/boot` copy of the boot credential no longer
+expires, so revoking the OAuth client is now the only cut-off for a leaked
+disk copy (D2). Image rolls leave the old `menegroth-server` node in the
+tailnet; delete it first so the new node gets the MagicDNS name Ansible uses
+(`docs/runbooks/key-rotation.md`).
+
+*Alternatives considered:* keep 90-day auth keys with a rotation calendar —
+rejected: a missed rotation strands the server silently, and every rotation
+needs an image rebuild. For fresh-server reachability: join via cloud-init
+`user_data` — rejected: the join credential would sit in Terraform state and
+the server's metadata endpoint (readable by any process on the box); an
+Ansible "bootstrap mode" over the public IP — rejected: needs the dark
+host's firewall opened to the CI runner and a second connection path to
+maintain.
+
 ## Provisioning flow
 
 1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:
-   admin user, key-only SSH, python3), and the data volume.
+   admin user, key-only SSH, python3), and the data volume. The server waits
+   at the unlock prompt (Mac agent unlocks), then `tailscale-firstboot`
+   joins the tailnet as `menegroth-server` (D10).
 2. `ansible-playbook site.yml` (CI) applies roles in order:
    `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`.
 3. All roles are idempotent; the playbook runs on every merge to master.
@@ -332,7 +390,9 @@ source of the version drift the repo has repeatedly hit.
   encrypted) to any restic target — enable with `ops_restic_enabled: true`.
 - **Monitoring:** a 15-minute systemd timer checks `/data` mount state, disk
   usage, failed units, Tailscale health, and OOM kills in the agent slice,
-  and pushes to an ntfy topic only when something is wrong.
+  and pushes to an ntfy topic only when something is wrong. Every run also
+  pings the dead-man heartbeat (D10); the external monitor alerts when the
+  server goes quiet.
 - **Updates:** unattended-upgrades with automatic reboots at 19:00 UTC
   (`unattended_reboot_time` in `ansible/group_vars/all.yml`, chosen for
   Mac-awake hours so the root can be unlocked — see D2b); the data volume

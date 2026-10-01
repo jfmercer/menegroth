@@ -20,14 +20,15 @@ D3/D6/D8. **[you]** = manual; **[script]** = done by `scripts/bootstrap/`.
 ## 1. Seed credentials — create by hand [you]
 
 Each is an account/token that *authenticates the automation*, so it can't be
-scripted away. Everything else (LUKS keys, admin SSH key, Tailscale ACL + join
-keys, ntfy topic) is **[script]**-generated — do **not** make those by hand.
+scripted away. Everything else (LUKS keys, admin SSH key, Tailscale ACL, ntfy
+topic) is **[script]**-generated — do **not** make those by hand.
 
 | Service | Create | Seed → destination |
 |---|---|---|
 | **1Password** | vault `Menegroth`; two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN`; `MENEGROTH_OP_UNLOCK_TOKEN` |
 | **Hetzner Cloud** | Read & Write API token | `HCLOUD_TOKEN` → `/ci` |
-| **Tailscale** | API access token (ACL-write + key-mint); a `tag:ci` OAuth client (`auth_keys` scope) | `TS_API_TOKEN`; `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` → `/ci` |
+| **Tailscale** | API access token (ACL write). **After step 9a:** three OAuth clients, `auth_keys` scope, one tag each — `tag:ci`, `tag:server`, `tag:boot-unlock` (D10: never expiring auth keys) | `TS_API_TOKEN`; `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` + `TS_SERVER_OAUTH_SECRET` → `/ci`; `TS_BOOT_OAUTH_SECRET` → `/unlock` |
+| **Dead-man monitor** | healthchecks.io (or similar) check: period 15 min, grace ~45 min, alerts to your phone | `HEARTBEAT_URL` → `/server` |
 | **HCP Terraform** | org **`menegroth`** + workspace **`menegroth`**, Execution Mode **Local**; user/team token | `TF_API_TOKEN` (GitHub secret) |
 | **Infisical** (EU) | two projects + two identities (below) | GitHub secrets + `/ci` |
 | **GitHub App** (Renovate) | App with Contents+PRs+**Workflows**+Issues+Commit statuses write, Dependabot alerts read, installed on the repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` → `/ci` |
@@ -75,11 +76,16 @@ on `jfmercer/menegroth`; generate a private key (PEM). App ID + key → the
 
 ## 3. Run bootstrap
 
-9. **[script]** `./bootstrap.sh --dry-run` → then `./bootstrap.sh` (idempotent).
-   Phases: `10-onepassword` → `20-tailscale` → `30-infisical` → `40-github`.
-   Generates/stores the LUKS keys, admin SSH key, ACL + `tag:server` /
-   `tag:boot-unlock` keys, ntfy topic, and the three GitHub secrets +
-   `TF_CLOUD_ORGANIZATION` variable.
+9. **[script]** `./bootstrap.sh --dry-run`, then in two halves (idempotent):
+   - 9a. `./bootstrap.sh 10-onepassword 20-tailscale` — vault items + the
+     tailnet ACL, which **defines the three tags**.
+   - 9b. **[you]** create the three Tailscale OAuth clients (an OAuth client
+     can only be given tags the ACL already defines); export
+     `TS_OAUTH_CLIENT_ID`/`TS_OAUTH_SECRET`, `TS_SERVER_OAUTH_SECRET`,
+     `TS_BOOT_OAUTH_SECRET` (both `tskey-client-…`), and `HEARTBEAT_URL`.
+   - 9c. `./bootstrap.sh 30-infisical 40-github` — generates/stores the LUKS
+     keys, admin SSH key, ntfy topic, every seed at its Infisical path, and
+     the three GitHub secrets + `TF_CLOUD_ORGANIZATION` variable.
 
 ## 4. Mac unlock agent [you]
 

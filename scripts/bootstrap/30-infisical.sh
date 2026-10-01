@@ -6,7 +6,6 @@
 #   - generated: openssl / ssh-keygen (data-volume key, admin keypair)
 #   - from 1Password: the values phase 10 created (root passphrase, pub keys)
 #
-# The two Tailscale auth keys are written by phase 20 (they are unrepeatable).
 # Idempotent: an existing secret is left unchanged (re-runs never rotate keys).
 #
 # Two projects (free-plan access isolation, D8): /ci and /unlock go to the
@@ -54,17 +53,37 @@ op_put() { # op_put <path> <KEY> <op://reference> — reads as the bootstrap SA
   put "$path" "$key" "$(op_sa read "$ref")"
 }
 
+# oauth_put: like put, but refuse anything that isn't a Tailscale OAuth
+# client secret — an expiring tskey-auth-... key pasted here would bake a
+# 90-day time bomb into the image (D10).
+oauth_put() { # oauth_put <path> <KEY> <value>
+  local val="$3"
+  if [[ -n "$val" && "$val" != tskey-client-* ]]; then
+    die "$2 must be a Tailscale OAuth client secret (tskey-client-...), not an auth key"
+  fi
+  put "$@"
+}
+
 # ---- Seeds (from the environment) -------------------------------------------
 step "/ci — seed credentials"
 put /ci HCLOUD_TOKEN                  "${HCLOUD_TOKEN:-}"
 put /ci TS_OAUTH_CLIENT_ID           "${TS_OAUTH_CLIENT_ID:-}"
 put /ci TS_OAUTH_SECRET              "${TS_OAUTH_SECRET:-}"
+# tag:server OAuth client — baked onto the encrypted root for the first-boot
+# tailnet join (Packer reads it from /ci).
+oauth_put /ci TS_SERVER_OAUTH_SECRET "${TS_SERVER_OAUTH_SECRET:-}"
 put /ci SERVER_IDENTITY_CLIENT_ID     "${SERVER_IDENTITY_CLIENT_ID:-}"
 put /ci SERVER_IDENTITY_CLIENT_SECRET "${SERVER_IDENTITY_CLIENT_SECRET:-}"
 # GitHub App the self-hosted Renovate workflow (.github/workflows/renovate.yml)
 # exchanges for a short-lived installation token — no long-lived PAT in GitHub.
 put /ci RENOVATE_APP_ID              "${RENOVATE_APP_ID:-}"
 put /ci RENOVATE_APP_PRIVATE_KEY     "${RENOVATE_APP_PRIVATE_KEY:-}"
+
+step "/unlock — boot-node OAuth client (tag:boot-unlock; embedded in the initramfs)"
+oauth_put /unlock TS_BOOT_OAUTH_SECRET "${TS_BOOT_OAUTH_SECRET:-}"
+
+step "/server — dead-man heartbeat URL (server project)"
+put /server HEARTBEAT_URL "${HEARTBEAT_URL:-}"
 
 # ---- Generated --------------------------------------------------------------
 step "/server — generated data-volume LUKS key (server project)"

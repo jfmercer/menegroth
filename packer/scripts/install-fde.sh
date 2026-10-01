@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Runs inside the Hetzner RESCUE system (Packer `rescue = "linux64"`).
 # Installs Ubuntu 26.04 with a LUKS2-encrypted root, an unencrypted /boot,
-# and an initramfs that joins the tailnet (static tailscaled) and accepts
-# the unlock passphrase over dropbear. The result is snapshotted by Packer.
+# an initramfs that joins the tailnet (static tailscaled) and accepts the
+# unlock passphrase over dropbear, and a first-boot unit that joins the real
+# system to the tailnet (D10). The result is snapshotted by Packer.
 set -euo pipefail
 
-: "${LUKS_PASSPHRASE:?}" "${TS_BOOT_AUTHKEY:?}" "${MAC_UNLOCK_PUBKEY:?}"
-: "${UBUNTU_SERIES:=resolute}" "${TAILSCALE_VERSION:?}" "${BOOT_HOSTNAME:=menegroth-server-boot}"
+: "${LUKS_PASSPHRASE:?}" "${TS_BOOT_OAUTH_SECRET:?}" "${TS_SERVER_OAUTH_SECRET:?}" "${MAC_UNLOCK_PUBKEY:?}"
+: "${UBUNTU_SERIES:=resolute}" "${TAILSCALE_VERSION:?}" "${TS_APT_KEY_SHA256:?}"
+: "${BOOT_HOSTNAME:=menegroth-server-boot}" "${BOOT_TAG:=tag:boot-unlock}"
+: "${SERVER_HOSTNAME:=menegroth-server}" "${SERVER_TAG:=tag:server}"
 
 DISK=/dev/sda
 BOOT_PART=${DISK}2
@@ -72,8 +75,9 @@ for fs in dev proc sys run; do
 done
 cp /etc/resolv.conf "$TARGET/etc/resolv.conf"
 
-echo "=== 5/8 Install kernel, grub, cryptsetup, dropbear, cloud-init"
-chroot "$TARGET" env DEBIAN_FRONTEND=noninteractive bash -s <<'CHROOT'
+echo "=== 5/8 Install kernel, grub, cryptsetup, dropbear, cloud-init, tailscale"
+chroot "$TARGET" env DEBIAN_FRONTEND=noninteractive \
+  UBUNTU_SERIES="$UBUNTU_SERIES" TS_APT_KEY_SHA256="$TS_APT_KEY_SHA256" bash -s <<'CHROOT'
 set -euo pipefail
 apt-get update -qq
 apt-get install -y -qq \
@@ -81,6 +85,19 @@ apt-get install -y -qq \
   cryptsetup cryptsetup-initramfs dropbear-initramfs busybox-initramfs \
   openssh-server cloud-init netplan.io sudo python3 \
   curl ca-certificates iproute2
+
+# The real system's tailscale (the package the Ansible tailscale role
+# manages — same keyring path and repo line, so the role is a no-op on it).
+# Needed here so a fresh server can join the tailnet before Ansible can
+# reach it (D10). Signing key pinned by SHA-256, like the Ansible role.
+key=/usr/share/keyrings/tailscale-archive-keyring.gpg
+curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${UBUNTU_SERIES}.noarmor.gpg" -o "$key"
+printf '%s  %s\n' "$TS_APT_KEY_SHA256" "$key" | sha256sum -c --quiet -
+chmod 644 "$key"
+echo "deb [signed-by=$key] https://pkgs.tailscale.com/stable/ubuntu ${UBUNTU_SERIES} main" \
+  > /etc/apt/sources.list.d/tailscale.list
+apt-get update -qq
+apt-get install -y -qq tailscale
 CHROOT
 
 echo "=== 6/8 Initramfs: dropbear + tailscale"
@@ -106,14 +123,59 @@ tar -xzf /tmp/tailscale.tgz -C "$TARGET/usr/lib/tailscale-initramfs" \
   "tailscale_${TAILSCALE_VERSION}_amd64/tailscale"
 
 # Boot node credentials/config. NOTE: these are embedded into the initramfs
-# image on the UNENCRYPTED /boot partition — that is the accepted trade-off
-# (see docs/architecture.md D2). The auth key is ephemeral + pre-authorized
-# + restricted to tag:boot-unlock, and revocable in the admin console.
+# image on the UNENCRYPTED /boot partition — the accepted trade-off (see
+# docs/architecture.md D2/D10). The credential is a tag:boot-unlock OAuth
+# client secret (never expires; revocable in the admin console); the query
+# parameters make every node it creates ephemeral + pre-authorized. Read via
+# `tailscale up --auth-key=file:...`, so it never appears on argv.
+umask 077
 mkdir -p "$TARGET/etc/tailscale-boot"
-printf '%s\n' "$TS_BOOT_AUTHKEY" > "$TARGET/etc/tailscale-boot/authkey"
+printf '%s?ephemeral=true&preauthorized=true' "$TS_BOOT_OAUTH_SECRET" \
+  > "$TARGET/etc/tailscale-boot/authkey"
 printf '%s\n' "$BOOT_HOSTNAME" > "$TARGET/etc/tailscale-boot/hostname"
-chmod 700 "$TARGET/etc/tailscale-boot"
-chmod 600 "$TARGET/etc/tailscale-boot/authkey"
+printf '%s\n' "$BOOT_TAG" > "$TARGET/etc/tailscale-boot/tags"
+
+# First-boot tailnet join for the REAL system (D10): a fresh server (first
+# deploy, image roll, restore) is otherwise unreachable — the host is dark
+# and Ansible connects only over the tailnet. The tag:server OAuth client
+# secret sits on the ENCRYPTED root and is deleted after a successful join.
+mkdir -p "$TARGET/etc/tailscale-firstboot"
+printf '%s?ephemeral=false&preauthorized=true' "$TS_SERVER_OAUTH_SECRET" \
+  > "$TARGET/etc/tailscale-firstboot/authkey"
+umask 022
+cat > "$TARGET/usr/local/sbin/tailscale-firstboot" <<EOF
+#!/bin/bash
+# Join the tailnet once, on the first boot of a server built from this image,
+# so Ansible (tailnet-only) can reach it. Installed by packer/scripts/install-fde.sh.
+set -euo pipefail
+cred=/etc/tailscale-firstboot/authkey
+state="\$(tailscale status --json 2>/dev/null \\
+  | python3 -c 'import json, sys; print(json.load(sys.stdin).get("BackendState", ""))' || true)"
+if [[ "\$state" != "Running" ]]; then
+  tailscale up --auth-key="file:\$cred" --advertise-tags=$SERVER_TAG \\
+    --hostname=$SERVER_HOSTNAME --ssh --timeout=60s
+fi
+rm -f "\$cred"
+EOF
+chmod 0750 "$TARGET/usr/local/sbin/tailscale-firstboot"
+cat > "$TARGET/etc/systemd/system/tailscale-firstboot.service" <<'EOF'
+[Unit]
+Description=Join the tailnet on the first boot of a fresh server
+Wants=network-online.target
+After=network-online.target tailscaled.service
+Requires=tailscaled.service
+# The credential is removed after a successful join: later boots skip this.
+ConditionPathExists=/etc/tailscale-firstboot/authkey
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/tailscale-firstboot
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # initramfs-tools hook + boot scripts (from packer/files/initramfs/).
 install -m 0755 "$FILES/initramfs/tailscale-hook" \
@@ -149,8 +211,12 @@ network:
 EOF
 chmod 600 /etc/netplan/50-dhcp.yaml
 
-# Fresh identity on first boot from the snapshot.
+systemctl enable tailscaled.service tailscale-firstboot.service
+
+# Fresh identity on first boot from the snapshot — including tailscaled's:
+# no node state may be baked into the image.
 truncate -s 0 /etc/machine-id
+rm -rf /var/lib/tailscale/*
 passwd -l root
 CHROOT
 

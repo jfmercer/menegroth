@@ -37,7 +37,8 @@ jobs:
         run: >
           packer validate
           -var root_luks_passphrase=placeholder
-          -var boot_tailscale_authkey=placeholder
+          -var boot_tailscale_oauth_secret=tskey-client-placeholder
+          -var server_tailscale_oauth_secret=tskey-client-placeholder
           -var 'mac_unlock_ssh_pubkey=ssh-ed25519 AAAAplaceholder ci-validate'
           .
 
@@ -53,8 +54,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # HCLOUD_TOKEN comes from /ci; the LUKS passphrase and boot auth key
-      # live under /unlock (readable by the CI identity for builds only).
+      # HCLOUD_TOKEN + the tag:server OAuth secret come from /ci; the LUKS
+      # passphrase and tag:boot-unlock OAuth secret live under /unlock
+      # (readable by the CI identity for builds only).
       - name: Fetch CI secrets from Infisical
         uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
         with:
@@ -84,6 +86,7 @@ jobs:
       - name: packer build
         env:
           PKR_VAR_root_luks_passphrase: ${{ env.ROOT_LUKS_KEY }}
-          PKR_VAR_boot_tailscale_authkey: ${{ env.TS_BOOT_AUTHKEY }}
+          PKR_VAR_boot_tailscale_oauth_secret: ${{ env.TS_BOOT_OAUTH_SECRET }}
+          PKR_VAR_server_tailscale_oauth_secret: ${{ env.TS_SERVER_OAUTH_SECRET }}
           PKR_VAR_mac_unlock_ssh_pubkey: ${{ env.MAC_UNLOCK_SSH_PUBKEY }}
         run: packer build .

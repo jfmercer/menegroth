@@ -26,8 +26,11 @@ tailnet join failed):
      & power cycle), mount the root disk, `chroot` and fix; or
    - if you previously set a root password for emergencies (not default), log
      in directly.
-4. Typical fixes: `systemctl restart tailscaled`, `tailscale up`, inspect
-   `journalctl -u tailscaled`.
+4. Typical fixes: `systemctl restart tailscaled`, inspect
+   `journalctl -u tailscaled`. On a **fresh** server that never appeared on
+   the tailnet, check `journalctl -u tailscale-firstboot` — its credential
+   (`/etc/tailscale-firstboot/authkey`) is deleted only after a successful
+   join, so `systemctl restart tailscale-firstboot` retries it.
 
 ## 2. Temporary public SSH via Terraform
 
