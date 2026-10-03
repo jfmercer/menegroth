@@ -13,16 +13,23 @@ set -euo pipefail
 : "${SERVER_HOSTNAME:=menegroth-server}" "${SERVER_TAG:=tag:server}"
 
 DISK=/dev/sda
-BOOT_PART=${DISK}2
-LUKS_PART=${DISK}3
+ESP_PART=${DISK}2
+BOOT_PART=${DISK}3
+LUKS_PART=${DISK}4
 MAPPER=root_crypt
 TARGET=/mnt/target
 FILES=/tmp/fde-files
 
-echo "=== 1/8 Partitioning $DISK (GPT: bios_grub, /boot, LUKS root)"
+echo "=== 1/8 Partitioning $DISK (GPT: bios_grub, ESP, /boot, LUKS root)"
+apt-get update -qq
+apt-get install -y -qq debootstrap dosfstools
+# Hybrid boot, like Hetzner's own images: the server types differ in firmware
+# (the CPX32 boots UEFI; others boot legacy BIOS), and a snapshot must boot on
+# either. bios_grub serves BIOS; the EFI System Partition serves UEFI.
 sfdisk --wipe always "$DISK" <<'PARTS'
 label: gpt
 size=1MiB, type=21686148-6449-6E6F-744E-656564454649
+size=256MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
 size=1GiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 PARTS
@@ -33,6 +40,7 @@ printf '%s' "$LUKS_PASSPHRASE" \
   | cryptsetup luksFormat --type luks2 --batch-mode "$LUKS_PART" --key-file=-
 printf '%s' "$LUKS_PASSPHRASE" \
   | cryptsetup open "$LUKS_PART" "$MAPPER" --key-file=-
+mkfs.vfat -F 32 -n EFI "$ESP_PART" >/dev/null
 mkfs.ext4 -q -L boot "$BOOT_PART"
 mkfs.ext4 -q -L root "/dev/mapper/$MAPPER"
 
@@ -41,8 +49,8 @@ mkdir -p "$TARGET"
 mount "/dev/mapper/$MAPPER" "$TARGET"
 mkdir -p "$TARGET/boot"
 mount "$BOOT_PART" "$TARGET/boot"
-apt-get update -qq
-apt-get install -y -qq debootstrap
+mkdir -p "$TARGET/boot/efi"
+mount "$ESP_PART" "$TARGET/boot/efi"
 # Ubuntu's archive keys: the rescue system is Debian, which lacks them by
 # default — without them debootstrap only WARNS and installs unverified
 # packages fetched over plain HTTP. Debian's own ubuntu-keyring package can't
@@ -66,10 +74,12 @@ debootstrap --arch=amd64 \
 echo "=== 4/8 Base system configuration"
 LUKS_UUID="$(blkid -s UUID -o value "$LUKS_PART")"
 BOOT_UUID="$(blkid -s UUID -o value "$BOOT_PART")"
+ESP_UUID="$(blkid -s UUID -o value "$ESP_PART")"
 
 cat > "$TARGET/etc/fstab" <<EOF
-/dev/mapper/$MAPPER /     ext4 defaults 0 1
-UUID=$BOOT_UUID     /boot ext4 defaults 0 2
+/dev/mapper/$MAPPER /         ext4 defaults 0 1
+UUID=$BOOT_UUID     /boot     ext4 defaults 0 2
+UUID=$ESP_UUID      /boot/efi vfat umask=0077 0 1
 EOF
 # `initramfs`: always unlock this device in the initramfs, rather than relying
 # on the cryptroot hook detecting it as the root device from inside a chroot.
@@ -109,11 +119,21 @@ chroot "$TARGET" env DEBIAN_FRONTEND=noninteractive \
   UBUNTU_SERIES="$UBUNTU_SERIES" TS_APT_KEY_SHA256="$TS_APT_KEY_SHA256" bash -s <<'CHROOT'
 set -euo pipefail
 apt-get update -qq
+# GRUB: the UEFI package plus Ubuntu's signed shim (boots with Secure Boot on
+# or off), and grub-pc-bin for the BIOS fallback (grub-pc itself Conflicts
+# with grub-efi-amd64). Snapshots carry no firmware boot entries, so GRUB
+# always goes to the removable path too (EFI/BOOT/BOOTX64.EFI), on install
+# and on every later GRUB upgrade; never touch NVRAM.
+debconf-set-selections <<'DEBCONF'
+grub-efi-amd64 grub2/force_efi_extra_removable boolean true
+grub-efi-amd64 grub2/update_nvram boolean false
+DEBCONF
 # initramfs-tools explicitly: the kernel now Recommends dracut (which
 # Conflicts with initramfs-tools), but the unlock path — dropbear-initramfs and
 # the hooks in packer/files/initramfs/ — is built on initramfs-tools.
 apt-get install -y -qq \
-  linux-image-generic grub-pc initramfs-tools \
+  linux-image-generic initramfs-tools \
+  grub-efi-amd64 grub-efi-amd64-signed shim-signed grub-pc-bin dosfstools \
   cryptsetup cryptsetup-initramfs dropbear-initramfs busybox-initramfs \
   openssh-server cloud-init netplan.io sudo python3 \
   curl ca-certificates iproute2
@@ -225,12 +245,23 @@ set -euo pipefail
 sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX="ip=dhcp"/' /etc/default/grub
 sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=2/' /etc/default/grub
 # Single-OS server: never probe for other systems. os-prober (pulled in as a
-# grub-pc Recommends) mounts every partition — the open LUKS root included —
+# GRUB Recommends) mounts every partition — the open LUKS root included —
 # via grub-mount, a FUSE helper that can outlive the probe and keep
 # root_crypt busy at teardown.
 echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
-grub-install /dev/sda
+# UEFI: EFI/ubuntu plus the removable fallback path, no NVRAM entry.
+grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+  --bootloader-id=ubuntu --no-nvram --force-extra-removable
+# BIOS fallback, into the bios_grub partition.
+grub-install --target=i386-pc /dev/sda
 update-grub
+for f in /boot/efi/EFI/BOOT/BOOTX64.EFI /boot/efi/EFI/BOOT/grubx64.efi /boot/efi/EFI/ubuntu/grub.cfg \
+  /boot/grub/i386-pc/core.img /boot/grub/grub.cfg; do
+  if [[ ! -s "$f" ]]; then
+    echo "ERROR: $f missing — the image would not boot" >&2
+    exit 1
+  fi
+done
 update-initramfs -c -k all
 
 # Fail the build, not the first boot: a missing piece of the unlock path would
@@ -277,6 +308,7 @@ rm -f "$TARGET/etc/resolv.conf"
 ln -sf ../run/systemd/resolve/stub-resolv.conf "$TARGET/etc/resolv.conf"
 sync
 umount -R "$TARGET/dev" "$TARGET/proc" "$TARGET/sys" "$TARGET/run" || true
+umount "$TARGET/boot/efi"
 umount "$TARGET/boot"
 umount "$TARGET"
 # Something may briefly still hold root_crypt (udev probes, an exiting helper).

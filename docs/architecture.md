@@ -119,6 +119,16 @@ unlock and its ntfy alerting until manually re-provided).
   human at the console). Unattended-upgrade reboots are scheduled in
   Mac-awake hours (D2b below).
 
+**D2a — hybrid UEFI + BIOS boot:** the image carries both a `bios_grub`
+partition and an EFI System Partition, with GRUB installed for both (UEFI via
+Ubuntu's signed shim into `EFI/ubuntu` *and* the removable path
+`EFI/BOOT/BOOTX64.EFI`, never touching NVRAM). Hetzner server types differ in
+firmware (the CPX32 boots UEFI), a snapshot carries no firmware boot entries,
+and the first BIOS-only image dropped a CPX32 into the UEFI shell.
+*Alternative considered:* UEFI-only — rejected because the snapshot is meant
+to restore onto any type with a large enough disk (`packer/README.md`), and
+Hetzner's own images are hybrid for the same reason.
+
 **D2b — reboot orchestration:** unattended-upgrades reboots at 19:00 UTC
 (configurable, chosen for Mac-awake hours). If the Mac misses it, the server
 waits at the unlock prompt; the Mac agent alerts (ntfy) when a boot node is

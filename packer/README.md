@@ -12,8 +12,10 @@ D2 and D10 for the design and threat model.
 1. Packer boots a temporary **cpx22** into the Hetzner **rescue system**. Its
    80 GB disk sets the snapshot size, and a snapshot only restores onto an
    equal or larger disk, so the image fits CX33, CPX32, CX43, and so on.
-2. `scripts/install-fde.sh` partitions the disk (BIOS-boot / 1 GiB `/boot` /
-   LUKS2 root), debootstraps Ubuntu, installs kernel + grub + cloud-init +
+2. `scripts/install-fde.sh` partitions the disk (BIOS-boot / 256 MiB EFI
+   System Partition / 1 GiB `/boot` / LUKS2 root), debootstraps Ubuntu,
+   installs kernel + grub (UEFI via the signed shim, written to the removable
+   path `EFI/BOOT/BOOTX64.EFI`, plus a BIOS fallback) + cloud-init +
    `dropbear-initramfs` + the tailscale package, embeds the static tailscale
    binaries plus the boot node credential via the hooks in
    `files/initramfs/`, and installs `tailscale-firstboot.service`.

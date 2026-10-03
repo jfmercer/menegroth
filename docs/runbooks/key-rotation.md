@@ -15,7 +15,7 @@ The root passphrase lives in the 1Password `Menegroth` vault
 
 # 2. Add it to a free keyslot (current passphrase still valid):
 #    cryptsetup will prompt for an existing passphrase, then the new one:
-cryptsetup luksAddKey /dev/sda3
+cryptsetup luksAddKey /dev/sda4
 
 # 3. Verify, then update BOTH stores:
 #    - Infisical: overwrite /unlock/ROOT_LUKS_KEY, delete the _NEW entry
@@ -24,7 +24,7 @@ cryptsetup luksAddKey /dev/sda3
 #      processes), then delete luks-passphrase-new
 
 # 4. Remove the old keyslot:
-cryptsetup luksRemoveKey /dev/sda3   # supply the OLD passphrase
+cryptsetup luksRemoveKey /dev/sda4   # supply the OLD passphrase
 
 # 5. Prove end-to-end: reboot; the Mac agent must unlock with the new key.
 systemctl reboot
