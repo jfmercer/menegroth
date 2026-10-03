@@ -122,10 +122,12 @@ apt-get update -qq
 # GRUB: the UEFI package plus Ubuntu's signed shim (boots with Secure Boot on
 # or off), and grub-pc-bin for the BIOS fallback (grub-pc itself Conflicts
 # with grub-efi-amd64). Snapshots carry no firmware boot entries, so GRUB
-# always goes to the removable path too (EFI/BOOT/BOOTX64.EFI), on install
-# and on every later GRUB upgrade; never touch NVRAM.
+# must also go to the removable path (EFI/BOOT/BOOTX64.EFI), on install and on
+# every later GRUB upgrade, and never touch NVRAM. Ubuntu's grub-install does
+# the extra removable install by default (only --no-extra-removable turns it
+# off); pin the debconf answer the upgrade postinst consults.
 debconf-set-selections <<'DEBCONF'
-grub-efi-amd64 grub2/force_efi_extra_removable boolean true
+grub-efi-amd64 grub2/no_efi_extra_removable boolean false
 grub-efi-amd64 grub2/update_nvram boolean false
 DEBCONF
 # initramfs-tools explicitly: the kernel now Recommends dracut (which
@@ -249,9 +251,10 @@ sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=2/' /etc/default/grub
 # via grub-mount, a FUSE helper that can outlive the probe and keep
 # root_crypt busy at teardown.
 echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
-# UEFI: EFI/ubuntu plus the removable fallback path, no NVRAM entry.
+# UEFI: EFI/ubuntu plus (by default) the removable fallback path, no NVRAM
+# entry. The checks below fail the build if the removable copy is missing.
 grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-  --bootloader-id=ubuntu --no-nvram --force-extra-removable
+  --bootloader-id=ubuntu --no-nvram
 # BIOS fallback, into the bios_grub partition.
 grub-install --target=i386-pc /dev/sda
 update-grub
