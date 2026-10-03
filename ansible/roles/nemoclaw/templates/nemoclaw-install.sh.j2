@@ -11,7 +11,47 @@
 #
 # Docker is pre-installed and the user is in the docker group (docker.yml),
 # so the installer needs no sudo; runuser applies the user's groups.
+#
+# Output also goes to /var/log/nemoclaw-install.log: Ansible hides it
+# (no_log) and CI logs are public. Root-only, because the installer can
+# print local dashboard URLs that carry access tokens.
 set -euo pipefail
+
+log=/var/log/nemoclaw-install.log
+touch "$log"
+chmod 0600 "$log"
+exec > >(tee -a "$log") 2>&1
+echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) nemoclaw-install {{ nemoclaw_install_tag }}"
+
+# A failed run leaves its onboarding session behind, and the installer then
+# refuses to go on non-interactively ("Previous onboarding session failed").
+# If that run never created a sandbox, starting over loses nothing, so do
+# that. Past that point, a human decides between --resume and --fresh.
+session={{ nemoclaw_home }}/.nemoclaw/onboard-session.json
+fresh=""
+if [[ -f "$session" ]]; then
+  last="$(python3 -c '
+import json, sys
+s = json.load(open(sys.argv[1]))
+if s.get("status") != "failed" and not s.get("failure"):
+    print("ok")
+elif ((s.get("steps") or {}).get("sandbox") or {}).get("status") == "complete":
+    print("failed-after-sandbox")
+else:
+    print("failed-before-sandbox")
+' "$session")"
+  case "$last" in
+    failed-before-sandbox)
+      echo "nemoclaw-install: last onboarding failed before creating a sandbox; starting fresh"
+      fresh=1
+      ;;
+    failed-after-sandbox)
+      echo "nemoclaw-install: last onboarding failed after creating a sandbox." >&2
+      echo "  Resolve it as the nemoclaw user: nemoclaw onboard --resume (or --fresh)." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 {% if nemoclaw_provider_key_secret %}
 provider_key="$(/usr/local/bin/infisical-get {{ nemoclaw_provider_key_secret }})"
@@ -22,10 +62,12 @@ runuser -u {{ nemoclaw_user }} -- env \
   NEMOCLAW_INSTALL_REF={{ nemoclaw_install_commit }} \
   NEMOCLAW_NON_INTERACTIVE=1 \
   NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
+  NEMOCLAW_FRESH="$fresh" \
   NEMOCLAW_AGENT={{ nemoclaw_agent }} \
   NEMOCLAW_PROVIDER={{ nemoclaw_provider }} \
   NEMOCLAW_POLICY_MODE={{ nemoclaw_policy_mode }} \
   NEMOCLAW_SANDBOX_NAME={{ nemoclaw_sandbox_name }} \
+  NEMOCLAW_GATEWAY_PORT={{ nemoclaw_gateway_port }} \
 {% if nemoclaw_provider_key_secret %}
   {{ nemoclaw_provider_key_env }}="$provider_key" \
 {% endif %}
