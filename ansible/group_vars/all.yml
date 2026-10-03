@@ -12,7 +12,7 @@ admin_shell_package: zsh
 # of — separate from the CI/unlock project — which is how the free plan
 # enforces that the server can't read /unlock (see docs/architecture.md D8).
 # REPLACE during bootstrap: Infisical console → the server project → Project ID.
-infisical_server_project_id: REPLACE_WITH_SERVER_PROJECT_ID
+infisical_server_project_id: 20e41cd4-2cbe-48e0-84be-2b2210268c93
 
 # Window for unattended-upgrades automatic reboots (UTC). Chosen for
 # Mac-awake hours: the FDE root needs the Mac unlock agent (macos/) to
