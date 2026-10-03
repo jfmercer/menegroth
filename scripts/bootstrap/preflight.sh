@@ -119,12 +119,17 @@ else
 fi
 
 # ---- Tailscale --------------------------------------------------------------
-step "Tailscale — ACL owns the three tags"
-if command -v curl >/dev/null 2>&1 && [[ -n "${TS_API_TOKEN:-}" ]]; then
+step "Tailscale — ACL owns the three tags; MagicDNS on"
+if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [[ -n "${TS_API_TOKEN:-}" ]]; then
   acl="$(ts_api GET /acl 2>/dev/null || true)"
   for t in "$SERVER_TAG" "$CI_TAG" "$BOOT_TAG"; do
     if grep -q "$t" <<<"$acl"; then pass "ACL contains $t"; else fail "ACL missing $t"; fi
   done
+  if [[ "$(ts_api GET /dns/preferences 2>/dev/null | jq -r '.magicDNS // false')" == "true" ]]; then
+    pass "MagicDNS enabled"
+  else
+    fail "MagicDNS disabled — Ansible reaches the server as menegroth-server (re-run ./bootstrap.sh 20-tailscale, or admin console -> DNS -> Enable MagicDNS)"
+  fi
 else
   warn "skipped — set TS_API_TOKEN (API access token) to verify the ACL"
 fi

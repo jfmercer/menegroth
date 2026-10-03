@@ -79,7 +79,8 @@ on `jfmercer/menegroth`; generate a private key (PEM). App ID + key → the
 
 9. **[script]** `./bootstrap.sh --dry-run`, then in two halves (idempotent):
    - 9a. `./bootstrap.sh 10-onepassword 20-tailscale` — vault items + the
-     tailnet ACL, which **defines the three tags**.
+     tailnet ACL, which **defines the three tags**, and MagicDNS (Ansible
+     reaches the server as `menegroth-server`).
    - 9b. **[you]** create the three Tailscale OAuth clients (an OAuth client
      can only be given tags the ACL already defines); export
      `TS_OAUTH_CLIENT_ID`/`TS_OAUTH_SECRET`, `TS_SERVER_OAUTH_SECRET`,

@@ -85,6 +85,30 @@ jobs:
           # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
           version: "1.98.9"
 
+      # Fail with the actual cause instead of ssh's "Could not resolve
+      # hostname": the inventory reaches the server by its MagicDNS name, so
+      # MagicDNS must be on and the node online. Waits a few minutes for a
+      # server that is still booting or waiting for the Mac agent's unlock.
+      - name: Check the server is on the tailnet
+        env:
+          SERVER_NAME: menegroth-server
+        run: |
+          if [[ "$(tailscale status --json | jq -r '.CurrentTailnet.MagicDNSEnabled')" != "true" ]]; then
+            echo "::error::MagicDNS is disabled on the tailnet, so '$SERVER_NAME' can't resolve. Enable it: admin console -> DNS -> Enable MagicDNS (or scripts/bootstrap/20-tailscale.sh)."
+            exit 1
+          fi
+          for _ in $(seq 1 18); do
+            online="$(tailscale status --json | jq -r --arg h "$SERVER_NAME" \
+              '[.Peer[]? | select(.HostName == $h or (.DNSName | startswith($h + "."))) | .Online] | any')"
+            if [[ "$online" == "true" ]]; then
+              echo "$SERVER_NAME is online on the tailnet"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::'$SERVER_NAME' is not online on the tailnet after 3 minutes. It is probably still locked: check the Mac unlock agent (~/.local/bin/menegroth-server-unlock --diagnose) and the Hetzner console (docs/troubleshooting.md)."
+          exit 1
+
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: true
