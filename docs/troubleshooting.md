@@ -153,11 +153,18 @@ Verification passed, but the unlock itself failed:
 - **1Password read failed:** the `menegroth-unlock` service-account token is
   revoked or expired. Re-create it and re-run `install.sh` (`macos/README.md`
   → Rotation).
-- **SSH failed:** check `unlock.log`. A `REMOTE HOST IDENTIFICATION HAS
+- **SSH failed:** check `~/.local/state/menegroth-server-unlock/unlock.log`
+  on the Mac. A `REMOTE HOST IDENTIFICATION HAS
   CHANGED` error after an image roll means the pinned dropbear host key is
   stale: clear it (`docs/runbooks/key-rotation.md` → "After any image
   roll"). Do this only after `--diagnose` shows `verified`; a host-key change
   with an unverified origin is exactly what an impostor looks like.
+- **`cryptsetup failed, bad password or options?`** in `unlock.log`: the
+  passphrase reached the server but did not open the disk. The image's disk
+  was formatted with Infisical `/unlock/ROOT_LUKS_KEY` and the agent sends
+  1Password `luks-passphrase`, so check the two are identical. Each failed
+  attempt uses one of the prompt's 3 tries; once they're used up, the prompt
+  is gone until the server reboots.
 
 Meanwhile, unlock via [§8](#8-manual-unlock-via-the-hetzner-console).
 

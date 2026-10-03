@@ -264,7 +264,10 @@ if ! op_read "$OP_SSH_KEY_REF" > "$keydir/id"; then
 fi
 chmod 600 "$keydir/id"
 
-if printf '%s\n' "$passphrase" | ssh \
+# No trailing newline: with stdin not a TTY, cryptroot-unlock passes it to
+# cryptsetup byte for byte (cat into askpass's fifo, which strips nothing),
+# and the disk was formatted with exactly the passphrase's bytes.
+if printf '%s' "$passphrase" | ssh \
     -i "$keydir/id" \
     -o BatchMode=yes \
     -o IdentitiesOnly=yes \
@@ -275,6 +278,6 @@ if printf '%s\n' "$passphrase" | ssh \
   clear_incident
   notify default "Menegroth server unlocked" "Root volume unlocked automatically at $(date '+%H:%M:%S') (origin verified); server is booting."
 else
-  notify high "Menegroth server unlock FAILED" "SSH unlock attempt to ${target} failed — see unlock.log. Console fallback: docs/troubleshooting.md."
+  notify high "Menegroth server unlock FAILED" "SSH unlock attempt to ${target} failed — see $STATE_DIR/unlock.log on the Mac. Console fallback: docs/troubleshooting.md."
   exit 1
 fi
