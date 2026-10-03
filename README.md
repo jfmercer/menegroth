@@ -214,7 +214,7 @@ export HEARTBEAT_URL=https://hc-ping.com/...         # dead-man monitor
 ```
 
 The four phases (1Password → Tailscale → Infisical → GitHub) push the tailnet
-ACL, generate the LUKS and admin SSH keys, and store every secret at its
+ACL (and turn on MagicDNS), generate the LUKS and admin SSH keys, and store every secret at its
 exact path/name — with all 1Password access running as the vault-scoped
 `menegroth-bootstrap` service account. Then load the Mac unlock agent:
 

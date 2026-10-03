@@ -17,6 +17,7 @@ source "$HERE/lib.sh"
 load_env
 
 require_cmd curl
+require_cmd jq
 require_env TS_API_TOKEN "admin console -> Settings -> Keys -> generate API access token"
 
 # ---- ACL policy -------------------------------------------------------------
@@ -52,6 +53,20 @@ if confirm "Overwrite the tailnet ACL with the menegroth policy (replaces the wh
   fi
 else
   warn "ACL push skipped — the OAuth clients need the three tags to already be defined"
+fi
+
+# ---- MagicDNS ---------------------------------------------------------------
+# Ansible's inventory, the Mac's `ssh admin@menegroth-server`, and the docs all
+# reach the server by its MagicDNS name. A tailnet with MagicDNS off resolves
+# none of them (the CI runner fails with "Could not resolve hostname").
+step "Tailnet MagicDNS"
+if [[ "$(ts_api GET /dns/preferences 2>/dev/null | jq -r '.magicDNS // false')" == "true" ]]; then
+  ok "MagicDNS already enabled"
+elif dry_skip "POST tailnet DNS preferences (magicDNS=true)"; then
+  :
+else
+  ts_api POST /dns/preferences '{"magicDNS": true}' >/dev/null
+  ok "MagicDNS enabled"
 fi
 
 ok "Tailscale phase complete"
