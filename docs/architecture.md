@@ -59,6 +59,13 @@ workspace execution mode is **Local** so it never runs plans itself.
 
 *Alternative considered:* Terraform Cloud VCS-driven runs — rejected because
 Ansible would still need GitHub Actions, leaving two pipelines to maintain.
+
+Applies run on pushes to master and on a manual dispatch from master. The
+dispatch's `replace_server` input is the deliberate image roll
+(`-replace=hcloud_server.menegroth`), so a roll needs no laptop either.
+*Alternative considered:* Hetzner console **Rebuild** onto the new snapshot,
+rejected as the routine path: it bypasses Terraform (state keeps the old
+image ID) and leaves no CI record. It remains a console fallback.
 *Fallback:* Hetzner Object Storage as an S3-compatible backend (Terraform ≥1.10
 native lockfile) if we ever want to drop the HCP dependency; costs ~€5/mo.
 

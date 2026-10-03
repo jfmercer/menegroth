@@ -52,8 +52,12 @@ disk image for the `/boot` copy) or as hygiene:
 #    menegroth-server → Remove). Otherwise the new server's first-boot join
 #    gets the name menegroth-server-1, and Ansible (MagicDNS menegroth-server)
 #    keeps targeting the dead node.
-# 2. Roll (on master, via CI — or locally only in an emergency):
+# 2. Roll: Actions → Terraform → Run workflow, branch master, tick
+#    "replace_server". That runs, in CI:
 terraform apply -replace=hcloud_server.menegroth
+#    (Locally only in an emergency.) The server is destroyed and recreated,
+#    and Hetzner deletes its automatic backups with it: convert any you
+#    want to keep into snapshots first. /data and the Primary IPs survive.
 # 3. The new server waits at the unlock prompt; the Mac agent unlocks it;
 #    tailscale-firstboot joins it as menegroth-server. Then re-run the
 #    Ansible workflow (Actions → Ansible → Re-run) to provision it.

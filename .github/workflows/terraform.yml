@@ -7,6 +7,15 @@ on:
   push:
     branches: [master]
     paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch: # apply from master on demand, e.g. an image roll
+    inputs:
+      replace_server:
+        description: >-
+          Image roll: destroy the server and recreate it from the newest FDE
+          snapshot (terraform apply -replace=hcloud_server.menegroth). Read
+          docs/runbooks/key-rotation.md first.
+        type: boolean
+        default: false
 
 permissions: {} # granted per-job below
 
@@ -35,6 +44,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+
+      # Applies come from master only. "Run workflow" lets any branch be
+      # picked, and that would apply unmerged code.
+      - name: Refuse a dispatch from another branch
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::Run this workflow from master, not $GITHUB_REF: a dispatch applies the branch's code."
+          exit 1
 
       # Only two credentials live in GitHub secrets: the HCP Terraform token
       # and the Infisical "ci" machine identity. Everything else (Hetzner
@@ -112,5 +129,12 @@ jobs:
         run: exit 1
 
       - name: terraform apply
-        if: github.event_name == 'push'
-        run: terraform apply -input=false -auto-approve
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          REPLACE_SERVER: ${{ inputs.replace_server }} # empty on push
+        run: |
+          args=(-input=false -auto-approve)
+          if [[ "$REPLACE_SERVER" == "true" ]]; then
+            args+=(-replace=hcloud_server.menegroth)
+          fi
+          terraform apply "${args[@]}"
