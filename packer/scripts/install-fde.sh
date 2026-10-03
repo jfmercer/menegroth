@@ -8,6 +8,7 @@ set -euo pipefail
 
 : "${LUKS_PASSPHRASE:?}" "${TS_BOOT_OAUTH_SECRET:?}" "${TS_SERVER_OAUTH_SECRET:?}" "${MAC_UNLOCK_PUBKEY:?}"
 : "${UBUNTU_SERIES:=resolute}" "${TAILSCALE_VERSION:?}" "${TS_APT_KEY_SHA256:?}"
+: "${UBUNTU_KEYRING_VERSION:?}" "${UBUNTU_KEYRING_DEB_SHA256:?}"
 : "${BOOT_HOSTNAME:=menegroth-server-boot}" "${BOOT_TAG:=tag:boot-unlock}"
 : "${SERVER_HOSTNAME:=menegroth-server}" "${SERVER_TAG:=tag:server}"
 
@@ -41,16 +42,25 @@ mount "/dev/mapper/$MAPPER" "$TARGET"
 mkdir -p "$TARGET/boot"
 mount "$BOOT_PART" "$TARGET/boot"
 apt-get update -qq
-# ubuntu-keyring: the rescue system is Debian, which lacks Ubuntu's archive
-# keys by default — without them debootstrap only WARNS and installs
-# unverified packages fetched over plain HTTP. --keyring makes signature
-# verification mandatory (a missing/rotated key fails the build loudly).
-apt-get install -y -qq debootstrap ubuntu-keyring
+apt-get install -y -qq debootstrap
+# Ubuntu's archive keys: the rescue system is Debian, which lacks them by
+# default — without them debootstrap only WARNS and installs unverified
+# packages fetched over plain HTTP. Debian's own ubuntu-keyring package can't
+# be relied on (bookworm, the rescue base, dropped it from main), so fetch
+# Ubuntu's package from the target series' release pocket (immutable once the
+# series is released). It arrives over plain HTTP, so the SHA-256 pin is the
+# trust anchor. --keyring makes signature verification mandatory (a
+# missing/rotated key fails the build loudly).
+kr_deb=/tmp/ubuntu-keyring.deb
+curl -fsSL "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_${UBUNTU_KEYRING_VERSION}_all.deb" \
+  -o "$kr_deb"
+printf '%s  %s\n' "$UBUNTU_KEYRING_DEB_SHA256" "$kr_deb" | sha256sum -c --quiet -
+dpkg-deb -x "$kr_deb" /tmp/ubuntu-keyring
 # Pass the generic `gutsy` script explicitly: every Ubuntu suite script is a
 # symlink to it, so this succeeds even if the rescue system's debootstrap
 # predates the target suite and would otherwise abort with "No such script".
 debootstrap --arch=amd64 \
-  --keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg \
+  --keyring=/tmp/ubuntu-keyring/usr/share/keyrings/ubuntu-archive-keyring.gpg \
   "$UBUNTU_SERIES" "$TARGET" http://archive.ubuntu.com/ubuntu gutsy
 
 echo "=== 4/8 Base system configuration"
