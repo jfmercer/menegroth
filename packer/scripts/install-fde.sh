@@ -252,13 +252,20 @@ sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=2/' /etc/default/grub
 # root_crypt busy at teardown.
 echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
 # UEFI: EFI/ubuntu plus (by default) the removable fallback path, no NVRAM
-# entry. The checks below fail the build if the removable copy is missing.
+# entry. Ubuntu's layout, as on its cloud images: EFI/ubuntu holds shimx64,
+# grubx64, BOOTX64.CSV and the grub.cfg stub; EFI/BOOT holds shim as
+# BOOTX64.EFI plus shim's fallback fbx64.efi. With no boot entry in NVRAM
+# (a fresh server from the snapshot), firmware runs EFI/BOOT/BOOTX64.EFI,
+# fbx64 reads EFI/ubuntu/BOOTX64.CSV, adds the entry and chains to
+# EFI/ubuntu/shimx64.efi -> grubx64.efi.
 grub-install --target=x86_64-efi --efi-directory=/boot/efi \
   --bootloader-id=ubuntu --no-nvram
 # BIOS fallback, into the bios_grub partition.
 grub-install --target=i386-pc /dev/sda
 update-grub
-for f in /boot/efi/EFI/BOOT/BOOTX64.EFI /boot/efi/EFI/BOOT/grubx64.efi /boot/efi/EFI/ubuntu/grub.cfg \
+for f in /boot/efi/EFI/BOOT/BOOTX64.EFI /boot/efi/EFI/BOOT/fbx64.efi \
+  /boot/efi/EFI/ubuntu/shimx64.efi /boot/efi/EFI/ubuntu/grubx64.efi \
+  /boot/efi/EFI/ubuntu/BOOTX64.CSV /boot/efi/EFI/ubuntu/grub.cfg \
   /boot/grub/i386-pc/core.img /boot/grub/grub.cfg; do
   if [[ ! -s "$f" ]]; then
     echo "ERROR: $f missing — the image would not boot" >&2
