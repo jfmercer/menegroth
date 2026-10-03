@@ -1,0 +1,56 @@
+---
+- name: Install healthcheck script
+  ansible.builtin.template:
+    src: healthcheck.sh.j2
+    dest: /usr/local/bin/server-healthcheck
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install healthcheck service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/server-healthcheck.service
+    content: |
+      [Unit]
+      Description=Server health checks with ntfy alerting
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/server-healthcheck
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Install healthcheck timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/server-healthcheck.timer
+    content: |
+      [Unit]
+      Description=Run server health checks periodically
+
+      [Timer]
+      OnBootSec=5min
+      OnUnitActiveSec={{ ops_healthcheck_interval }}
+      RandomizedDelaySec=1min
+
+      [Install]
+      WantedBy=timers.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Configure restic backups
+  ansible.builtin.import_tasks: restic.yml
+  when: ops_restic_enabled
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable healthcheck timer
+  ansible.builtin.systemd_service:
+    name: server-healthcheck.timer
+    enabled: true
+    state: started

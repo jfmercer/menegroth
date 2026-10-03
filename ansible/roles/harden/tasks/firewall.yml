@@ -1,0 +1,25 @@
+---
+# Defense in depth behind the Hetzner Cloud Firewall: default-deny inbound
+# on the host as well. SSH stays allowed at the host layer — public
+# reachability is governed by the cloud firewall (bootstrap_admin_ip_cidr in
+# Terraform), and after Phase 3 nothing can reach port 22 from outside the
+# tailnet anyway.
+- name: Default deny incoming
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Default allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled

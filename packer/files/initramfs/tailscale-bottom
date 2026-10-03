@@ -1,0 +1,15 @@
+#!/bin/sh
+# initramfs-tools init-bottom SCRIPT: after the root volume is unlocked and
+# just before pivoting to the real root, log the ephemeral boot node out
+# (removing it from the tailnet immediately) and stop tailscaled so the
+# real system's own tailscale node starts clean.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+  prereqs) prereqs; exit 0 ;;
+esac
+
+/usr/bin/tailscale --socket=/var/run/tailscale.sock logout >/dev/null 2>&1 || true
+kill "$(pidof tailscaled)" >/dev/null 2>&1 || true
+ip link del tailscale0 >/dev/null 2>&1 || true
+exit 0

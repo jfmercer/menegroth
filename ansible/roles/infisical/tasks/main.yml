@@ -1,0 +1,55 @@
+---
+# Explicit repo + pinned signing key instead of the vendor's `curl | bash`
+# setup script (which only does these two things, as root, unpinned).
+- name: Install Infisical apt signing key (pinned by checksum)
+  ansible.builtin.get_url:
+    url: https://artifacts-cli.infisical.com/infisical.gpg
+    dest: /etc/apt/keyrings/infisical.asc
+    checksum: "sha256:{{ infisical_apt_key_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add Infisical CLI apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/infisical.asc]
+      https://artifacts-cli.infisical.com/deb stable main
+    filename: infisical
+    state: present
+
+- name: Install Infisical CLI
+  ansible.builtin.apt:
+    name: infisical
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Infisical config directory
+  ansible.builtin.file:
+    path: /etc/infisical
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install machine identity credentials
+  ansible.builtin.template:
+    src: identity.env.j2
+    dest: /etc/infisical/identity.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true # template contains the client secret
+
+- name: Install infisical-get helper
+  ansible.builtin.template:
+    src: infisical-get.sh.j2
+    dest: /usr/local/bin/infisical-get
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Verify the server identity can read its secret path
+  ansible.builtin.command: /usr/local/bin/infisical-get --check
+  changed_when: false

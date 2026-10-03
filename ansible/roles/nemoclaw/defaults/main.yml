@@ -1,0 +1,53 @@
+---
+# NemoClaw is alpha software — the installer ref is pinned and bumped
+# deliberately via PR, never floated on the "lkg" default.
+nemoclaw_install_tag: v0.0.89
+# The commit that tag points to. The installer is fetched by commit, not tag:
+# tags can be re-pointed after a repo compromise; commit SHAs cannot. Bump
+# BOTH together — resolve with:
+#   git ls-remote https://github.com/NVIDIA/NemoClaw '<tag>^{}'
+# (Renovate's nemoclaw regex manager bumps both in one PR.)
+nemoclaw_install_commit: 1143aa5cce77f3bad1b3b5588bd7fddbe438237e
+
+nemoclaw_user: nemoclaw
+nemoclaw_uid: 1500
+# Home on the encrypted volume: all agent state, workspaces, and sandbox
+# data land on /data without guessing NemoClaw's internal paths.
+nemoclaw_home: /data/nemoclaw
+
+# openclaw (default) | hermes | deepagents
+nemoclaw_agent: openclaw
+# Inference provider: anthropic | openai | openrouter | gemini | routed | ...
+nemoclaw_provider: anthropic
+# Optional inference credential. To enable: store the provider's API key in
+# Infisical under /server, then set both vars — the secret name and the env
+# var the provider expects (e.g. ANTHROPIC_API_KEY for anthropic). Empty =
+# the installer runs with no provider key exported.
+nemoclaw_provider_key_secret: ""
+nemoclaw_provider_key_env: ""
+# suggested = NemoClaw's hardened default network policy
+nemoclaw_policy_mode: suggested
+nemoclaw_sandbox_name: main
+
+# ---- Memory (8 GB host; docs/architecture.md → Hardware) -------------------
+# The sandboxes, k3s, and the OpenShell gateway are DOCKER CONTAINERS, which
+# run under dockerd, not under the nemoclaw user's session. Docker puts every
+# container in nemoclaw.slice (daemon.json cgroup-parent), and that slice
+# carries the real cap. The user slice only covers the nemoclaw CLI/Node
+# processes. Both are ceilings, backed by swap — not reservations.
+nemoclaw_containers_memory_high: 5G
+nemoclaw_containers_memory_max: 6G
+nemoclaw_memory_high: 1G
+nemoclaw_memory_max: 1536M
+
+# NemoClaw recommends swap at 8 GB RAM: the sandbox image load can otherwise
+# OOM. The swap file lives on the LUKS-encrypted root, so paged-out memory
+# stays encrypted at rest.
+nemoclaw_swap_file: /swapfile
+nemoclaw_swap_size_mb: 4096
+
+# ---- Docker (installed by this role, not by the NemoClaw installer) ---------
+# The installer would otherwise run `sudo sh get.docker.com` + `usermod`,
+# which the unprivileged nemoclaw user can't. SHA-256 of Docker's armored apt
+# key: a vendor key rotation fails the play loudly — verify, then bump.
+nemoclaw_docker_apt_key_sha256: 1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570 # gitleaks:allow (public key hash, not a secret)

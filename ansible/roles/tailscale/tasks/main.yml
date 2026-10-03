@@ -1,0 +1,57 @@
+---
+- name: Install Tailscale signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    checksum: "sha256:{{ tailscale_apt_key_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add Tailscale apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main
+    filename: tailscale
+    state: present
+
+- name: Install tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Enable tailscaled
+  ansible.builtin.service:
+    name: tailscaled
+    state: started
+    enabled: true
+
+# The tailnet JOIN happens on first boot, from the image (Packer
+# tailscale-firstboot, D10): the host is dark and this play connects over
+# the tailnet, so by the time it runs the node is already joined. This role
+# only keeps the package current and the node configured.
+- name: Read Tailscale backend state
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Assert the node is on the tailnet
+  ansible.builtin.assert:
+    that: (tailscale_status.stdout | default('{}', true) | from_json).BackendState | default('NoState') == 'Running'
+    fail_msg: >-
+      tailscaled is not Running. A fresh server should have joined via
+      tailscale-firstboot.service — check `journalctl -u tailscale-firstboot`
+      (docs/runbooks/break-glass.md).
+
+- name: Ensure Tailscale SSH stays enabled
+  ansible.builtin.command: tailscale set --ssh
+  changed_when: false
+
+- name: Allow all traffic in from the tailnet interface
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: tailscale0

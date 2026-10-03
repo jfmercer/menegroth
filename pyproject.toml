@@ -1,0 +1,25 @@
+# This project ships NO Python package — it is Infrastructure-as-Code
+# (Terraform + Packer + Ansible + shell). This manifest exists only to pin the
+# dev/CI Python *tooling* (Ansible controller + linters) with uv, so CI and
+# local runs are reproducible on a single, latest-stable interpreter. The macOS
+# unlock agent's stdlib `/usr/bin/python3` one-liner is deliberately NOT managed
+# here (it must stay out of uv's way in the unlock critical path).
+[project]
+name = "menegroth-tooling"
+version = "0"
+description = "Pinned dev/CI Python tooling for the menegroth IaC repo (not a package)."
+requires-python = ">=3.14"
+# No runtime deps: nothing here is imported by shipped code.
+dependencies = []
+
+[dependency-groups]
+# Installed by `uv sync`; run via `uv run <tool>`.
+dev = [
+    "ansible-core>=2.21.2",
+    "ansible-lint>=26.6.0",
+    "pre-commit>=4.0",
+]
+
+[tool.uv]
+# Virtual project: never build/install the root, just resolve the environment.
+package = false

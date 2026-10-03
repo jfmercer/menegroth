@@ -1,0 +1,87 @@
+---
+- name: Skip unless an operator configured dotfiles (DOTFILES_REPO)
+  ansible.builtin.meta: end_role
+  when: dotfiles_repo | length == 0
+
+- name: Validate the dotfiles settings
+  ansible.builtin.assert:
+    that:
+      - dotfiles_repo is match('^https://')
+      - dotfiles_ref is match('^[0-9a-f]{40}$')
+      - dotfiles_dest is not match('^/')
+      - "'..' not in dotfiles_dest.split('/')"
+    fail_msg: >-
+      DOTFILES_REPO must be an https:// URL, DOTFILES_REF a full 40-character
+      commit SHA (a branch would let anyone who can push to it run code as a
+      sudo-capable user here), and DOTFILES_DEST a path inside the home
+      directory. Got repo={{ dotfiles_repo }} ref={{ dotfiles_ref }}
+      dest={{ dotfiles_dest }}.
+
+- name: Look up the dotfiles user's home directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ dotfiles_user }}"
+
+- name: Set dotfiles paths
+  ansible.builtin.set_fact:
+    dotfiles_home: "{{ ansible_facts.getent_passwd[dotfiles_user][4] }}"
+    dotfiles_path: "{{ ansible_facts.getent_passwd[dotfiles_user][4] }}/{{ dotfiles_dest }}"
+    dotfiles_marker_dir: "{{ ansible_facts.getent_passwd[dotfiles_user][4] }}/.local/state/menegroth-dotfiles"
+
+# force: false — local edits made on the server are never clobbered; the play
+# fails instead, so they can be committed upstream or discarded deliberately.
+- name: Check out the pinned dotfiles commit
+  ansible.builtin.git:
+    repo: "{{ dotfiles_repo }}"
+    dest: "{{ dotfiles_path }}"
+    version: "{{ dotfiles_ref }}"
+    force: false
+  become: true
+  become_user: "{{ dotfiles_user }}"
+
+- name: Find the repo's installer
+  ansible.builtin.stat:
+    path: "{{ dotfiles_path }}/{{ item }}"
+  loop: "{{ dotfiles_installers }}"
+  register: dotfiles_installer_stat
+
+- name: Choose the installer
+  ansible.builtin.set_fact:
+    dotfiles_installer: >-
+      {{ (dotfiles_installer_stat.results | selectattr('stat.exists')
+          | map(attribute='item') | first) | default('') }}
+
+- name: Require an installer
+  ansible.builtin.assert:
+    that: dotfiles_installer | length > 0
+    fail_msg: >-
+      {{ dotfiles_repo }} has none of {{ dotfiles_installers | join(', ') }}
+      at its root; add one, or unset DOTFILES_REPO.
+
+- name: Ensure the install-marker directory exists
+  ansible.builtin.file:
+    path: "{{ dotfiles_marker_dir }}"
+    state: directory
+    owner: "{{ dotfiles_user }}"
+    group: "{{ dotfiles_user }}"
+    mode: "0755"
+
+# Runs once per pinned commit. Everything the installer does — packages, sudo
+# use, shell changes — is the dotfiles repo's own business, not this repo's.
+- name: Run the dotfiles installer (once per commit)
+  ansible.builtin.command: "{{ dotfiles_path }}/{{ dotfiles_installer }}"
+  args:
+    chdir: "{{ dotfiles_path }}"
+    creates: "{{ dotfiles_marker_dir }}/installed-{{ dotfiles_ref }}"
+  become: true
+  become_user: "{{ dotfiles_user }}"
+  register: dotfiles_install
+
+- name: Record the installed commit
+  ansible.builtin.file:
+    path: "{{ dotfiles_marker_dir }}/installed-{{ dotfiles_ref }}"
+    state: touch
+    owner: "{{ dotfiles_user }}"
+    group: "{{ dotfiles_user }}"
+    mode: "0644"
+  when: dotfiles_install is changed

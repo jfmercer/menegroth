@@ -1,0 +1,26 @@
+#!/bin/sh
+# initramfs-tools HOOK: embed the static tailscale binaries, the boot node
+# credentials, CA roots, and the tun module into the initramfs image. Runs on
+# every `update-initramfs`, so kernel updates keep the unlock path working.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+  prereqs) prereqs; exit 0 ;;
+esac
+# shellcheck disable=SC1091 # exists only inside initramfs-tools at build time
+. /usr/share/initramfs-tools/hook-functions
+
+copy_exec /usr/lib/tailscale-initramfs/tailscaled /usr/bin/tailscaled
+copy_exec /usr/lib/tailscale-initramfs/tailscale /usr/bin/tailscale
+
+mkdir -p "$DESTDIR/etc/tailscale-boot"
+cp -p /etc/tailscale-boot/authkey "$DESTDIR/etc/tailscale-boot/authkey"
+cp -p /etc/tailscale-boot/hostname "$DESTDIR/etc/tailscale-boot/hostname"
+cp -p /etc/tailscale-boot/tags "$DESTDIR/etc/tailscale-boot/tags"
+
+# CA roots: with an OAuth client secret, the `tailscale up` CLI itself calls
+# api.tailscale.com over HTTPS to mint the boot node's key (D10).
+mkdir -p "$DESTDIR/etc/ssl/certs"
+cp -p /etc/ssl/certs/ca-certificates.crt "$DESTDIR/etc/ssl/certs/ca-certificates.crt"
+
+manual_add_modules tun

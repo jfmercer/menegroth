@@ -1,0 +1,519 @@
+# Architecture & Decision Log
+
+Last updated: 2026-10-01
+
+## Goal
+
+A single personal server for secure AI agent workflows: agents run continuously
+in sandboxes, with strong isolation from each other and from the credentials
+and data they don't need. The whole system is reproducible from this repo.
+
+## Hardware
+
+Hetzner Cloud **CPX32**: 4 shared AMD vCPUs, 8 GB RAM, 160 GB local SSD,
+plus an attached Hetzner Volume for encrypted data.
+
+*Sizing (2026-10-01):* NemoClaw's documented minimum is **4 vCPU / 8 GB RAM /
+20 GB free disk** (recommended 16 GB RAM, 40 GB disk; `docs/get-started/
+prerequisites.mdx` at the pinned release). RAM is the binding constraint: the
+~2.4 GB sandbox image is loaded while Docker, k3s, and the OpenShell gateway
+all run, and NemoClaw warns of OOM kills below 8 GB (and recommends swap at
+8 GB). CPU need is modest, since inference is remote.
+
+*Alternatives considered:* **CX33** (same 4 vCPU / 8 GB, ~¼ the price) —
+preferred but unavailable at deploy time; **CX23 / CPX22** (2 vCPU / 4 GB) —
+below NemoClaw's minimum; **CCX13** (2 dedicated vCPU / 8 GB) — below the vCPU
+minimum and dearer than CPX32; 16 GB types (CX43 unavailable; CPX42, CCX23) —
+the recommended tier, but 2–10× the cost for a personal server. Moving to a
+CX33 later is a server replacement, not an in-place resize (Hetzner can't
+shrink the CPX32's 160 GB disk): roll per `docs/runbooks/key-rotation.md`
+with `server_type = "cx33"`; `/data`, the Primary IPs, and secrets carry
+over. The image is built on a CPX22 (80 GB disk) so one snapshot fits every
+candidate type; on the CPX32 the encrypted root partition stays 80 GB, which
+is ample (Docker images live there; agent data lives on `/data`).
+
+RAM budget (approximate targets):
+
+| Component | Budget / cap |
+|-----------|--------|
+| Base OS + sshd + tailscaled + dockerd/containerd | ~1 GB (uncapped) |
+| Monitoring/healthcheck | ~0.1 GB |
+| All Docker containers — sandboxes, k3s, OpenShell gateway (`nemoclaw.slice`) | `MemoryHigh` 5 GB / `MemoryMax` 6 GB |
+| nemoclaw CLI / Node processes (`user-1500.slice`) | `MemoryHigh` 1 GB / `MemoryMax` 1.5 GB |
+| Swap file on the encrypted root | 4 GB |
+
+The caps are ceilings, not reservations (they sum past 8 GB on purpose); swap
+absorbs peaks such as the sandbox-image load. Docker containers run under
+dockerd, not the nemoclaw user's session, so the container cap is applied by
+pointing Docker's `cgroup-parent` at `nemoclaw.slice`.
+
+No GPU: all inference is routed to cloud APIs. Local models are out of scope.
+
+## Decisions
+
+### D1 — CI: GitHub Actions with HCP Terraform as a state-only backend
+
+Terraform *and* Ansible both run in GitHub Actions, so there is one pipeline
+system. HCP Terraform (free tier) stores state and provides locking; its
+workspace execution mode is **Local** so it never runs plans itself.
+
+*Alternative considered:* Terraform Cloud VCS-driven runs — rejected because
+Ansible would still need GitHub Actions, leaving two pipelines to maintain.
+*Fallback:* Hetzner Object Storage as an S3-compatible backend (Terraform ≥1.10
+native lockfile) if we ever want to drop the HCP dependency; costs ~€5/mo.
+
+### D2 — Encryption: true FDE — LUKS2 root + LUKS2 data volume (revised)
+
+*(Revision 2026-07-16: the original design left root unencrypted for
+unattended reboots. Requirement changed to full disk encryption on all
+volumes, with the reboot problem solved by automated remote unlock.)*
+
+**Root volume:** the server boots from a custom snapshot (built by the
+`packer/` pipeline) with a LUKS2-encrypted root and unencrypted `/boot`. The
+base OS tracks the latest Ubuntu LTS — currently 26.04 "Resolute Raccoon"
+(`ubuntu_series = resolute`). At
+boot, the initramfs joins the tailnet as an **ephemeral** node
+(`menegroth-server-boot`, `tag:boot-unlock`) and runs dropbear (public-key only,
+forced command `cryptroot-unlock`, no forwarding). The Mac unlock agent
+(`macos/`) detects the boot node and pipes the passphrase from 1Password
+over Tailscale SSH transport. The boot node logs itself out before
+the pivot to the real root. Fallback: type the passphrase in the Hetzner web
+console — always available, cannot be locked out.
+
+**Data volume:** unchanged — LUKS2, unlocked at boot by `data-volume.service`
+with a key fetched from Infisical (`/server/DATA_VOLUME_LUKS_KEY`). Its
+Infisical machine-identity credential now rests on the encrypted root, which
+closes the old "credential on plaintext disk" gap.
+
+**Key custody:** the root passphrase lives in a dedicated 1Password vault
+(`Menegroth`), read by the Mac agent via a service account scoped
+read-only to that single vault (service accounts can never see the Private
+vault). A recovery copy sits in Infisical under `/unlock/` — a path the
+**server's own identity cannot read** (only the human/CI identities can).
+The server can never unlock itself. Apple Keychain and the Passwords app
+hold no project secrets; the only on-disk Mac credential is the 0600
+service-account token file (kept on disk deliberately, so hands-free unlock
+survives Mac reboots — an in-memory-only token was tried and rejected
+because launchd's environment is cleared at reboot, silently disabling both
+unlock and its ntfy alerting until manually re-provided).
+
+**Honest threat model:**
+
+- ✅ Protects at rest: disk images, snapshots, backups, recycled/detached
+  disks, Hetzner disk disposal — for root *and* data.
+- ⚠️ A live-compromised hypervisor can still read RAM (keys included). FDE on
+  a cloud VM protects data at rest, not against a live host-level adversary.
+- ⚠️ On unencrypted `/boot`: the initramfs contains the `tag:boot-unlock`
+  OAuth client secret (D10) and the dropbear host keys. It decrypts nothing
+  by itself — but anyone holding a copy of the disk (including a Hetzner
+  backup or snapshot) can join the tailnet as a boot node and **impersonate
+  the unlock prompt**. The Mac agent therefore never trusts the tag: it
+  sends the passphrase only to a boot node that answers over a direct path
+  from the server's own public address (D11). Revoking the OAuth client cuts
+  off a leaked copy; tailnet ACLs still restrict the tag to *receiving* port
+  22 from the user's devices.
+- ⚠️ Kernel updates rebuild the initramfs; the tailscale hook re-embeds the
+  unlock path each time. The kernel-update survival test in `packer/README.md`
+  is mandatory after image changes.
+- ℹ️ Reboots complete only while an unlocker is reachable (Mac awake, or a
+  human at the console). Unattended-upgrade reboots are scheduled in
+  Mac-awake hours (D2b below).
+
+**D2b — reboot orchestration:** unattended-upgrades reboots at 19:00 UTC
+(configurable, chosen for Mac-awake hours). If the Mac misses it, the server
+waits at the unlock prompt; the Mac agent alerts (ntfy) when a boot node is
+online without a successful unlock, and unlocks as soon as it wakes.
+
+### D3 — Secrets: Infisical Cloud (EU)
+
+Self-hosting Infisical on the same server creates a bootstrap circularity (the
+server needs secrets to provision the thing that serves secrets) and costs
+~2 GB RAM. Infisical Cloud avoids both. Revisit self-hosting on a *separate*
+box later if data sovereignty becomes a requirement.
+
+Secret layout across **two** projects, `prod` environment (see D8 for why two).
+The `menegroth` project (member: `ci` identity) holds `/ci` and `/unlock`; a
+separate server project (member: `server` identity) holds `/server`:
+
+```
+# Project `menegroth` — read by the `ci` identity (CI workflows, by slug)
+/ci/HCLOUD_TOKEN           Hetzner API token (used by Terraform in CI)
+/ci/TS_OAUTH_CLIENT_ID     Tailscale OAuth client (CI runner tailnet join)
+/ci/TS_OAUTH_SECRET
+/ci/SSH_PRIVATE_KEY        Ansible bootstrap key (phases 1–2 only; Tailscale SSH after)
+/ci/ADMIN_SSH_PUBLIC_KEY   Its public half (TF_VAR_admin_ssh_public_key in CI)
+/ci/TS_SERVER_OAUTH_SECRET tag:server OAuth client secret — baked onto the
+                           encrypted root for the first-boot join (D10)
+/ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
+/ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
+/ci/RENOVATE_APP_ID                Renovate GitHub App — exchanged in renovate.yml
+/ci/RENOVATE_APP_PRIVATE_KEY       for a short-lived installation token (no PAT in GitHub)
+/unlock/ROOT_LUKS_KEY      Root FDE passphrase (recovery copy; primary lives in
+                           the Mac's 1Password vault). NOT readable by the server identity.
+/unlock/MAC_UNLOCK_SSH_PUBKEY  Public half of the Mac unlock key (embedded at image build)
+/unlock/TS_BOOT_OAUTH_SECRET  tag:boot-unlock OAuth client secret for the initramfs
+                           boot node (embedded at image build time; D10)
+
+# Server project (separate) — read by the `server` identity only
+/server/DATA_VOLUME_LUKS_KEY
+/server/NTFY_TOPIC_URL     Alerting destination
+/server/HEARTBEAT_URL      Dead-man ping URL (external monitor alerts when pings stop; D10)
+                           (LLM provider keys also go under /server if/when
+                           NemoClaw inference is configured — see the
+                           nemoclaw role's nemoclaw_provider_key_* vars)
+/server/RESTIC_REPOSITORY  (optional) restic backup target + password,
+/server/RESTIC_PASSWORD    only if ops_restic_enabled
+```
+
+The `/unlock` path is readable by the CI identity (image builds) and the
+human — **never** by the `server` identity: the server must not be able to
+unlock itself. On the free plan this is enforced by project separation, not
+path ACLs — see D8.
+
+Two machine identities (universal auth): `ci` is a member of the `menegroth`
+project (reads `/ci` + `/unlock`), `server` is a member of the server project
+(reads `/server` only). GitHub repo secrets contain only the `ci` identity
+credentials plus `TF_API_TOKEN`.
+
+### D4 — Network: fully dark host
+
+The Hetzner Cloud Firewall has **no inbound rules** (default deny) once
+Tailscale is up. Tailscale needs only outbound UDP. `ufw` on the host mirrors
+the default-deny inbound policy as defense in depth (allowing the `tailscale0`
+interface). SSH:
+
+- Human access: Tailscale SSH, authorized via tailnet ACLs.
+- CI access: the GitHub Actions runner joins the tailnet as an ephemeral node
+  tagged `tag:ci` via `tailscale/github-action`, then Ansible connects over
+  the tailnet.
+- Break-glass: Hetzner web console (VNC-like, works regardless of network) —
+  see `docs/runbooks/break-glass.md`.
+
+During phases 1–2 only, port 22 is open to a single admin IP so the very first
+Ansible run can reach the box; phase 3 removes that rule.
+
+#### Tailscale ACLs
+
+Tailnet policy needed (configured in the Tailscale admin console):
+
+```jsonc
+{
+  "tagOwners": {
+    "tag:server":      ["autogroup:admin"],
+    "tag:ci":          ["autogroup:admin"],
+    "tag:boot-unlock": ["autogroup:admin"]
+  },
+  "acls": [
+    // your devices reach the server on any port over the tailnet
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server:*"] },
+    // CI runners reach only SSH on the server
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:server:22"] },
+    // your devices reach the initramfs unlock prompt; the boot node initiates
+    // nothing (no rule has tag:boot-unlock as src). dropbear is ordinary SSH
+    // over the tailnet, not Tailscale SSH — hence an acls port-22 rule, not an
+    // ssh block entry.
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:boot-unlock:22"] }
+  ],
+  "ssh": [
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server"], "users": ["admin", "root"] },
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:server"], "users": ["admin"] }
+  ]
+}
+```
+
+This policy is applied by `scripts/bootstrap/20-tailscale.sh` (POST to
+`/api/v2/tailnet/-/acl`). Every tailnet credential is an **OAuth client**
+restricted to a single tag with the `auth_keys` scope, created by hand as a
+seed (after the ACL defines the tags): `tag:ci` for the CI runner,
+`tag:server` for the first-boot join, and `tag:boot-unlock` for the initramfs
+(D10). Nothing in the repo uses expiring auth keys.
+
+### D5 — Agent runtime: NVIDIA NemoClaw on OpenShell
+
+NemoClaw provides sandboxing (containerized OpenShell runtime with capability
+drops and per-sandbox network policy), blueprint-driven constraints, and
+routed inference. Agents never see raw API keys unless the blueprint grants
+them; keys are injected from Infisical into the NemoClaw host config.
+
+NemoClaw is an **alpha** project — its installer is pinned
+(`nemoclaw_install_tag` in the `nemoclaw` role defaults, plus the paired
+`nemoclaw_install_commit` SHA) and upgrades are deliberate, reviewed bumps
+(Renovate, `review-required`), not floating `lkg`. The commit pins *both*
+stages: the bootstrap `install.sh` is downloaded by commit, and
+`NEMOCLAW_INSTALL_REF=<commit>` makes it clone and run the real installer
+from that same commit (otherwise it would fetch the payload by the mutable
+tag).
+
+**Host integration (2026-10-01):** the role installs Docker Engine from
+Docker's signed apt repo (key pinned by SHA-256) and adds the `nemoclaw`
+user to the `docker` group *before* running the installer, which then needs
+no sudo (it would otherwise run `sudo sh get.docker.com` + `usermod`).
+`daemon.json` puts every container in `nemoclaw.slice` (the memory cap),
+binds published ports to `127.0.0.1` (Docker's iptables rules bypass ufw;
+the Hetzner firewall still blocks everything, so this restores the host
+layer of defense in depth), and uses the size-capped `local` log driver.
+**Accepted risk:** `docker` group membership is root-equivalent, as
+NemoClaw's own docs warn, so a compromise of the `nemoclaw` account is a
+host compromise. The agents' isolation boundary is the OpenShell sandbox,
+not that Unix user; the user exists to keep agent state on `/data` and out
+of the admin account. *Alternative considered:* rootless Docker — not a
+NemoClaw-tested path (k3s-in-Docker under rootless is fragile), so rejected
+for now. NemoClaw validates Ubuntu 24.04 as a host; its 26.04 lane covers
+installer and preflight but not yet live onboarding, so this host is ahead
+of upstream validation (`docs/verification.md` checks the stack end to
+end).
+
+### D6 — Bootstrap automation via scripted CLIs
+
+The one-time bootstrap is automated by `scripts/bootstrap/` — modular,
+idempotent shell scripts driving `op`, `infisical`, `gh`, `openssl`, and the
+Tailscale REST API (`curl`), plus `hcloud` in the preflight validator. From a
+small set of hand-made **seed credentials** (the accounts/tokens that
+authenticate the automation — Hetzner token, Tailscale API token + `tag:ci`
+OAuth client, the two Infisical identities, HCP token, and two 1Password
+**service accounts** scoped to the `Menegroth` vault), the scripts generate and
+store everything else, and `preflight.sh` verifies the whole tenant before the
+first Packer build.
+
+**1Password scope containment:** project scripts never use a personal `op`
+session. All access runs as one of two vault-scoped service accounts —
+`menegroth-bootstrap` (read+write items; used only during bootstrap and
+**revoked afterwards**; the `$MENEGROTH_OP_BOOTSTRAP_TOKEN` seed) and
+`menegroth-unlock` (read-only; the Mac agent's standing credential, stored
+0600 by `macos/install.sh`) — so 1Password enforces server-side that the
+project can reach the `Menegroth` vault and nothing else (service accounts
+structurally cannot be granted the Private vault). Preflight validates with
+the unlock token itself, proving the agent's real credential works. To remove source-file edits from
+the flow, the two public keys now live in Infisical (`/ci/ADMIN_SSH_PUBLIC_KEY`,
+`/unlock/MAC_UNLOCK_SSH_PUBKEY`) and CI injects them as `TF_VAR_`/`PKR_VAR_`.
+
+*Alternative considered:* declarative Terraform providers (Infisical, Tailscale,
+TFE) — rejected because it would put root/LUKS material in Terraform state and
+add a second state-bootstrap chicken-and-egg for a process that runs once.
+*Known limits:* Infisical identity creation and the Tailscale OAuth client have
+no scriptable creation path, so they remain seed steps; and the CLIs take secret
+values on argv (brief process-list exposure on the operator's machine).
+
+### D7 — Pipeline security scanning: zizmor + CodeQL, SHA-pinned supply chain
+
+The workflows carry the repo's highest-value credentials, so they get their own
+continuous analysis: **zizmor** (`zizmor.yml` + a pre-commit hook) statically
+audits the workflow files (template injection, credential persistence, unpinned
+actions, ...), and **CodeQL** (`codeql.yml`, `actions` query pack — the repo's
+only CodeQL-supported language) adds semantic taint analysis, both uploading
+SARIF to the Security tab (free: public repo). Supply-chain hardening landed
+with them: every `uses:` is pinned to a **full commit SHA** (version as a
+trailing comment) — never hand-edit a pin back to a tag — plus
+`persist-credentials: false` on all checkouts and job-scoped `permissions:`.
+
+Freshness is kept by **self-hosted Renovate** (`renovate.yml` + `renovate.json5`),
+which replaced Dependabot: Dependabot only reached `github-actions`, leaving the
+pre-commit hooks, Packer plugin, Ansible Galaxy collections, and the bare string
+pins (`tailscale_version`, `nemoclaw_*`) to rot. Renovate covers all of them
+(regex custom managers for the bare pins), keeps `pinDigests` + a 7-day
+`minimumReleaseAge` cooldown + weekly grouping, and never auto-merges — majors
+and the SHA-pinned nemoclaw/tailscale bumps open as standalone PRs for review.
+The workflow holds no long-lived token: it authenticates to Infisical with the
+`ci` secrets, pulls a Renovate **GitHub App** id + key from `/ci`, and mints a
+short-lived installation token — so the 3-GitHub-secret invariant (D3) holds.
+That token requests explicit `permission-*` scopes (contents, PRs, workflows,
+issues, statuses write; vulnerability-alerts read) rather than inheriting the
+App's whole grant (zizmor `github-app`). A full pipeline audit (2026-07-18)
+recorded the findings, accepted risks (e.g. the Infisical whole-job-env
+export), and deferred recommendations (saved-plan handoff, deployment
+environments, `workflow_dispatch` re-run entry points); the report is kept
+outside this public repo.
+
+*Alternative considered:* actionlint alone — it lints workflow syntax/shell but
+is not a security analyzer (no injection/secret-flow audits); zizmor + the
+CodeQL actions pack cover that ground and feed the Security tab's stateful
+triage. Manual review only was rejected: the tj-actions incident class is
+exactly what mutable-tag pins + unreviewed workflow edits invite.
+
+*Alternative considered (Renovate hosting):* the Mend-hosted Renovate GitHub App
+— zero workflow/token to maintain, but it grants a third-party app write access
+to the repo that gates production infra. Rejected to keep all trust in-repo and
+under zizmor/CodeQL, consistent with the dark-host, least-privilege posture; the
+cost is one self-hosted workflow and a GitHub App credential in Infisical.
+
+### D8 — Free-plan access isolation: two Infisical projects
+
+The split-custody invariant (D3) requires the `server` identity to read
+`/server` but **never** `/unlock`. Scoping an identity to specific secret
+*paths* within one project needs Infisical RBAC / custom roles — a paid tier.
+On the free plan the only access boundary is **project membership** with the
+built-in roles (a member sees all of a project's paths). So the isolation is
+structural: `/server` lives in a **separate project** whose only member is the
+`server` identity, while `/ci` and `/unlock` stay in the `menegroth` project
+whose only machine member is `ci`. Because `ci` legitimately reads both `/ci`
+and `/unlock`, only one project needs splitting off, keeping it to two projects
+(free tier allows three). The CI workflows are unaffected — they reference the
+`menegroth` project by slug and read only `/ci`/`/unlock`; only the host's
+`server`-identity project ID (`ansible/group_vars/all.yml`) points at the new
+project. Bootstrap routes writes by path (`INFISICAL_SERVER_PROJECT_ID` for
+`/server`, `INFISICAL_PROJECT_ID` otherwise; see `scripts/bootstrap/lib.sh`).
+
+*Alternatives considered:* (a) a single project with a path-scoped custom role —
+rejected: custom roles are Enterprise-tier, a recurring cost hard to justify for
+a solo project; (b) a single project with both identities as members — rejected:
+built-in roles can't stop the `server` identity from reading `/unlock`, breaking
+the one invariant this whole design exists to hold.
+
+### D9 — Python toolchain: uv-managed, latest-stable, locked
+
+The repo ships no Python package; its only Python is the Ansible controller
+tooling (`ansible-core`, `ansible-lint`) plus `pre-commit`. These are pinned in
+`pyproject.toml` + `uv.lock` on the latest stable interpreter (`.python-version`
+= 3.14; ansible-core 2.21 supports 3.14 as a controller), and both CI
+(`ansible.yml`, via `astral-sh/setup-uv`) and local runs use `uv sync --frozen`
++ `uv run`. Renovate's `pep621` manager + `lockFileMaintenance` keep it current;
+the interpreter pin is bumped by hand (annual, like `ubuntu_series`). The macOS
+unlock agent's stdlib `/usr/bin/python3` one-liner is **deliberately excluded** —
+uv must never be a dependency in the boot-unlock critical path.
+
+*Alternative considered:* plain `pip install ansible-core ansible-lint` in CI
+(the prior approach) — rejected: unpinned and non-reproducible, and the direct
+source of the version drift the repo has repeatedly hit.
+
+### D10 — Non-expiring tailnet credentials; fresh servers join on first boot
+
+*(2026-10-01.)* Two gaps in the original design: (1) the boot-unlock auth key
+baked into the image was a Tailscale **auth key**, which expires after at most
+90 days — after that every reboot would sit at the unlock prompt with no boot
+node for the Mac agent to see, and no alert from anywhere; (2) a **fresh
+server** (first deploy, `-replace` image roll, restore) could never be
+provisioned: the host is dark, Ansible connects only over the tailnet, and
+only the Ansible `tailscale` role joined the tailnet.
+
+**Decision:**
+
+- Both image-embedded credentials are Tailscale **OAuth client secrets**
+  (`tskey-client-…`, `auth_keys` scope, one tag each). They don't expire;
+  `tailscale up --auth-key=file:…?ephemeral=…&preauthorized=true
+  --advertise-tags=…` mints a short-lived key from them at join time.
+  Packer, bootstrap, and preflight reject anything else.
+- The image ships the tailscale package plus `tailscale-firstboot.service`,
+  which joins the real system as `tag:server` (`menegroth-server`, Tailscale
+  SSH on) on first boot and then deletes its credential. That credential
+  lives only on the **encrypted** root. The Ansible `tailscale` role no
+  longer joins; it asserts the node is Running and keeps it configured.
+- A **dead-man heartbeat**: the 15-minute healthcheck pings
+  `/server/HEARTBEAT_URL` on every run, and an external monitor
+  (healthchecks.io-style) alerts when pings stop — the one signal that covers
+  a server that never came back from a reboot.
+- The initramfs join is bounded (`--timeout`, ~3 min worst case) so a
+  Tailscale outage can't hide the console passphrase prompt.
+
+**Consequences:** the initramfs CLI now calls `api.tailscale.com` to mint the
+boot key, so the hook embeds CA roots and the premount script writes a
+`resolv.conf` (DHCP resolvers, Hetzner's as fallback) — verify on every image
+build (`packer/README.md`). The `/boot` copy of the boot credential no longer
+expires, so revoking the OAuth client is now the only cut-off for a leaked
+disk copy (D2). Image rolls leave the old `menegroth-server` node in the
+tailnet; delete it first so the new node gets the MagicDNS name Ansible uses
+(`docs/runbooks/key-rotation.md`).
+
+*Alternatives considered:* keep 90-day auth keys with a rotation calendar —
+rejected: a missed rotation strands the server silently, and every rotation
+needs an image rebuild. For fresh-server reachability: join via cloud-init
+`user_data` — rejected: the join credential would sit in Terraform state and
+the server's metadata endpoint (readable by any process on the box); an
+Ansible "bootstrap mode" over the public IP — rejected: needs the dark
+host's firewall opened to the CI runner and a second connection path to
+maintain.
+
+### D11 — The Mac agent verifies the boot node's network origin
+
+*(2026-10-01.)* The boot node's tailnet credential and dropbear host keys
+live on the unencrypted `/boot` (D2), so anyone with a copy of the disk
+(a Hetzner backup, a snapshot, the disk itself) can run an impostor boot node
+on the tailnet. The agent used to unlock any online `tag:boot-unlock` peer
+and accepted any host key for a new IP, so it would have sent the root
+passphrase to the impostor, defeating encryption at rest.
+
+**Decision:** before sending anything, the agent runs
+`tailscale ping --until-direct` to each candidate and requires the pong to
+arrive over a **direct** path from the server's own public address
+(`SERVER_IPV4` / `SERVER_IPV6_NET`, from Terraform). A disco pong is
+authenticated with the peer's key and must be *received* at that address,
+so even an attacker who can spoof source IPs can't produce it without being
+on-path at Hetzner. Outcomes:
+**verified** → unlock; **unverified** (relay only, no reply) → safe refusal,
+alert after 3 min; **mismatch** → possible impersonation, urgent alert. The
+agent fails closed with no address configured. The server's public IPs
+become Hetzner **Primary IPs** (`auto_delete = false`, delete-protected), so
+they survive `-replace` image rolls and the check needs no per-roll upkeep.
+A human fallback that can't be impersonated always exists, the Hetzner
+console (`docs/troubleshooting.md` §8), and manual SSH unlocks must pass the
+same origin check first.
+
+*Alternatives considered:* pin the dropbear host key — rejected: the
+host keys are on `/boot` too, so a disk copy carries them; check the Hetzner
+API for a recent reboot — rejected as the primary control: it only narrows
+the time window, an attacker can wait for a real reboot, and it puts a Hetzner
+token on the Mac; Tailscale `CurAddr` from `tailscale status` alone —
+rejected: it can be set by WireGuard roaming from a spoofed source address,
+whereas a disco pong proves two-way reachability; remove the `/boot`
+credential (console-only unlock) — rejected: it gives up hands-free reboots,
+the point of D2. *Cost:* if the Mac's network only allows relayed Tailscale
+paths, unlocks wait for a direct path or the console.
+
+### D12 — Operator dotfiles: a generic, opt-in hook
+
+*(2026-10-01.)* An operator wants their personal dotfiles on the server's
+login account, but this repo must stay usable by anyone: no personal
+packages, settings, or repo URLs in source.
+
+**Decision:** an optional `dotfiles` role modelled on GitHub Codespaces. All
+inputs are GitHub **repository variables** (`DOTFILES_REPO`, `DOTFILES_REF`,
+`DOTFILES_DEST`), the same out-of-source pattern as `TF_CLOUD_ORGANIZATION`.
+Unset means the role does nothing. When set, it clones the repo at the pinned
+commit into the `admin` user's home and runs the repo's own installer (first
+of `install.sh`, `bootstrap.sh`, `setup.sh`, … by the Codespaces convention),
+once per commit, as `admin`, and last in the play. Everything the installer
+does is the dotfiles repo's responsibility. Never installed for `nemoclaw`.
+
+**Trust:** `admin` has passwordless sudo, so an operator's dotfiles are
+root-trusted. Hence: `DOTFILES_REF` must be a full commit SHA (enforced by the
+role, bootstrap, and preflight); a newer commit reaches the server only when
+the operator bumps the variable and re-runs the Ansible workflow
+(`workflow_dispatch`, master only); and local edits in the clone are never
+clobbered (the run fails instead).
+
+*Alternatives considered:* installing a curated package set via Ansible and
+skipping the dotfiles' own scripts — rejected: it puts one operator's
+packages into the config every operator shares; tracking a branch — rejected:
+root for anyone who can push to it; Renovate-managed pins — impossible
+without putting the operator's repo in source.
+
+## Provisioning flow
+
+1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:
+   admin user, key-only SSH, python3), and the data volume. The server waits
+   at the unlock prompt (Mac agent unlocks), then `tailscale-firstboot`
+   joins the tailnet as `menegroth-server` (D10).
+2. `ansible-playbook site.yml` (CI) applies roles in order:
+   `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops`
+   → `dotfiles` (optional, D12).
+3. All roles are idempotent; the playbook runs on every merge to master.
+
+## Operations
+
+- **Backups:** Hetzner daily server backups (root disk, 7 slots, +20% server
+  cost). `/data` optionally backed up nightly by restic (client-side
+  encrypted) to any restic target — enable with `ops_restic_enabled: true`.
+- **Monitoring:** a 15-minute systemd timer checks `/data` mount state, disk
+  usage, failed units, Tailscale health, and OOM kills in the agent slice,
+  and pushes to an ntfy topic only when something is wrong. Every run also
+  pings the dead-man heartbeat (D10); the external monitor alerts when the
+  server goes quiet.
+- **Updates:** unattended-upgrades with automatic reboots at 19:00 UTC
+  (`unattended_reboot_time` in `ansible/group_vars/all.yml`, chosen for
+  Mac-awake hours so the root can be unlocked — see D2b); the data volume
+  re-unlocks itself after reboot (see D2).
+- **Verification:** `docs/verification.md` is the post-deploy checklist.
+
+## Out of scope (for now)
+
+- Public-facing services (webhooks/APIs) — firewall design would change.
+- Self-hosted Infisical, multi-server topology, local model inference.

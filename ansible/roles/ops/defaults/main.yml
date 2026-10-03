@@ -1,0 +1,17 @@
+---
+# Health checks run every 15 minutes; alerts go to an ntfy topic whose URL
+# (including the topic secret) lives in Infisical at /server/NTFY_TOPIC_URL.
+ops_healthcheck_interval: 15min
+ops_disk_alert_percent: 85
+# Dead-man heartbeat: a healthchecks.io-style ping URL (any service that
+# alerts when GET pings stop) stored at /server/HEARTBEAT_URL. Configure the
+# monitor with a 15 min period and a grace that covers a reboot + unlock.
+ops_heartbeat_secret: HEARTBEAT_URL
+
+# Optional restic backups of /data to any restic-supported repository
+# (e.g. a Hetzner Storage Box over SFTP). Requires RESTIC_REPOSITORY and
+# RESTIC_PASSWORD secrets under /server in Infisical.
+ops_restic_enabled: false
+ops_restic_schedule: "*-*-* 03:00:00" # nightly; clear of the 19:00 reboot window
+ops_restic_keep_daily: 7
+ops_restic_keep_weekly: 4

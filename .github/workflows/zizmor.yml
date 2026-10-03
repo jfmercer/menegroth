@@ -1,0 +1,37 @@
+---
+name: zizmor
+
+# Static analysis of the GitHub Actions workflows themselves (template
+# injection, credential persistence, unpinned actions, cache poisoning, ...).
+# SARIF results land under Security -> Code scanning.
+
+on:
+  pull_request:
+    paths: [".github/**"]
+  push:
+    branches: [master]
+    paths: [".github/**"]
+
+permissions: {}
+
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Analyze workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo
+      security-events: write # upload SARIF
+      actions: read # upload-sarif reads workflow-run info
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@6599ee8b7a49aef6a770f63d261d214911a7ce02 # v0.6.0
+        with:
+          advanced-security: true # public repo: SARIF upload is free

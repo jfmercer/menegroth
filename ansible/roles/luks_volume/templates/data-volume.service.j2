@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Unlock and mount the encrypted data volume
+# Needs outbound internet (Infisical) — wait for the network.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The script retries internally (attempts x 15 s), so the start job stays
+# pending until /data is mounted; dependents ordered After= this unit wait.
+ExecStart=/usr/local/bin/unlock-data-volume
+TimeoutStartSec={{ (luks_volume_unlock_attempts | int) * 20 + 60 }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+---
+admin_user: admin
+# Login shell of the admin account (what Tailscale SSH logs you into). The
+# package of the same name is installed first. Operators who prefer another
+# shell change these two lines; personal shell CONFIG belongs in their
+# dotfiles (README → "Personal dotfiles"), not here.
+admin_shell: /usr/bin/zsh
+admin_shell_package: zsh
+
+# Infisical *server* project holding this host's /server secrets (ID is not
+# sensitive). This is the dedicated project the `server` identity is a member
+# of — separate from the CI/unlock project — which is how the free plan
+# enforces that the server can't read /unlock (see docs/architecture.md D8).
+# REPLACE during bootstrap: Infisical console → the server project → Project ID.
+infisical_server_project_id: 20e41cd4-2cbe-48e0-84be-2b2210268c93
+
+# Window for unattended-upgrades automatic reboots (UTC). Chosen for
+# Mac-awake hours: the FDE root needs the Mac unlock agent (macos/) to
+# finish a reboot, so reboots happen in the evening, not at night.
+unattended_reboot_time: "19:00"

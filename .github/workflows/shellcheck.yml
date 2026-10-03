@@ -1,0 +1,53 @@
+---
+name: Shell
+
+# Shellcheck every tracked shell script (bootstrap, Mac agent, Packer image
+# + initramfs hooks) and the RENDERED Ansible script templates. Rendering also
+# catches Jinja syntax errors, which ansible-lint and --syntax-check never see.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "macos/**"
+      - "packer/**"
+      - "ansible/roles/**"
+      - "ansible/group_vars/**"
+      - ".shellcheckrc"
+      - ".github/workflows/shellcheck.yml"
+  push:
+    branches: [master]
+    paths:
+      - "scripts/**"
+      - "macos/**"
+      - "packer/**"
+      - "ansible/roles/**"
+      - "ansible/group_vars/**"
+      - ".shellcheckrc"
+      - ".github/workflows/shellcheck.yml"
+
+permissions: {} # granted per-job below
+
+concurrency:
+  group: shellcheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: Shellcheck + template render
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # clone the repo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # uv provides the locked jinja2 + PyYAML (via ansible-core) for rendering.
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
+      # shellcheck ships preinstalled on GitHub's Ubuntu runners.
+      - name: Render templates + shellcheck
+        run: scripts/ci/shellcheck-all.sh
