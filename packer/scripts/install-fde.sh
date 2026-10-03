@@ -71,27 +71,49 @@ cat > "$TARGET/etc/fstab" <<EOF
 /dev/mapper/$MAPPER /     ext4 defaults 0 1
 UUID=$BOOT_UUID     /boot ext4 defaults 0 2
 EOF
-echo "$MAPPER UUID=$LUKS_UUID none luks,discard" > "$TARGET/etc/crypttab"
+# `initramfs`: always unlock this device in the initramfs, rather than relying
+# on the cryptroot hook detecting it as the root device from inside a chroot.
+echo "$MAPPER UUID=$LUKS_UUID none luks,discard,initramfs" > "$TARGET/etc/crypttab"
 
-cat > "$TARGET/etc/apt/sources.list" <<EOF
-deb http://archive.ubuntu.com/ubuntu $UBUNTU_SERIES main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu $UBUNTU_SERIES-updates main restricted universe multiverse
-deb http://security.ubuntu.com/ubuntu $UBUNTU_SERIES-security main restricted universe multiverse
+# deb822 sources (the Ubuntu default since 24.04; apt 3 flags the one-line
+# sources.list format as legacy). debootstrap writes a one-line sources.list —
+# remove it so the archive isn't listed twice.
+rm -f "$TARGET/etc/apt/sources.list"
+cat > "$TARGET/etc/apt/sources.list.d/ubuntu.sources" <<EOF
+Types: deb
+URIs: http://archive.ubuntu.com/ubuntu
+Suites: $UBUNTU_SERIES $UBUNTU_SERIES-updates
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.ubuntu.com/ubuntu
+Suites: $UBUNTU_SERIES-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 EOF
 
 for fs in dev proc sys run; do
   mount --rbind "/$fs" "$TARGET/$fs"
   mount --make-rslave "$TARGET/$fs"
 done
-cp /etc/resolv.conf "$TARGET/etc/resolv.conf"
+# DNS for the chroot. debootstrap leaves /etc/resolv.conf as systemd-resolved's
+# relative symlink into /run, which now resolves through the rbind to the
+# rescue system's own file — so replace the link with a plain copy of the
+# rescue resolver config (dereferenced). Step 8 restores the symlink.
+rm -f "$TARGET/etc/resolv.conf"
+cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf"
 
 echo "=== 5/8 Install kernel, grub, cryptsetup, dropbear, cloud-init, tailscale"
 chroot "$TARGET" env DEBIAN_FRONTEND=noninteractive \
   UBUNTU_SERIES="$UBUNTU_SERIES" TS_APT_KEY_SHA256="$TS_APT_KEY_SHA256" bash -s <<'CHROOT'
 set -euo pipefail
 apt-get update -qq
+# initramfs-tools explicitly: the kernel now Recommends dracut (which
+# Conflicts with initramfs-tools), but the unlock path — dropbear-initramfs and
+# the hooks in packer/files/initramfs/ — is built on initramfs-tools.
 apt-get install -y -qq \
-  linux-image-generic grub-pc \
+  linux-image-generic grub-pc initramfs-tools \
   cryptsetup cryptsetup-initramfs dropbear-initramfs busybox-initramfs \
   openssh-server cloud-init netplan.io sudo python3 \
   curl ca-certificates iproute2
@@ -205,6 +227,20 @@ sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=2/' /etc/default/grub
 grub-install /dev/sda
 update-grub
 update-initramfs -c -k all
+
+# Fail the build, not the first boot: a missing piece of the unlock path would
+# otherwise only show up as a server that can't be unlocked remotely.
+for initrd in /boot/initrd.img-*; do
+  contents="$(lsinitramfs "$initrd")"
+  for want in '(^|/)cryptroot/crypttab$' '(^|/)sbin/dropbear$' '/\.ssh/authorized_keys$' \
+    '(^|/)usr/bin/tailscaled$' '(^|/)usr/bin/tailscale$' '(^|/)etc/tailscale-boot/authkey$' \
+    '(^|/)scripts/init-premount/tailscale$' '(^|/)scripts/init-bottom/tailscale$'; do
+    if ! grep -Eq "$want" <<<"$contents"; then
+      echo "ERROR: $initrd lacks $want — remote unlock would not work" >&2
+      exit 1
+    fi
+  done
+done
 
 # Hetzner datasource for cloud-init so Terraform user_data keeps working
 # on servers created from this snapshot.
