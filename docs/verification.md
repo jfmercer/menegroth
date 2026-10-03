@@ -71,6 +71,8 @@ after any significant change). They mirror the build phases.
 ## Agent runtime
 
 - [ ] As the nemoclaw user: onboard and run one sample agent end-to-end.
+      Needs an inference provider key: until `nemoclaw_provider_key_secret`
+      is set, the play skips the installer and says so (D5).
 - [ ] Blocked egress actually blocks: from inside the sandbox, `curl` a
       non-allowlisted host and confirm it fails.
 - [ ] Containers are capped: `systemd-cgls -u nemoclaw.slice` lists the

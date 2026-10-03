@@ -289,6 +289,21 @@ installer and preflight but not yet live onboarding, so this host is ahead
 of upstream validation (`docs/verification.md` checks the stack end to
 end).
 
+**Inference credential (2026-10-03):** the installer always ends by
+onboarding, and non-interactive onboarding needs an API key for every hosted
+provider. The keyless local providers (Ollama, vLLM, a local NIM) don't suit
+an 8 GB host without a GPU. So the role runs the installer only once
+`nemoclaw_provider_key_secret` names a key in Infisical `/server`. Until
+then it skips the installer and says so, and the rest of the play still
+applies. A Claude Pro or Max subscription can't stand in for that key:
+Anthropic allows subscription logins only in Claude Code and Claude's own
+apps, and NemoClaw's agents are third-party clients. Claude Code itself,
+logged in with the subscription, is fine and belongs in the operator's
+dotfiles (D12). *Alternative considered:* running the installer anyway. The
+installer has no option to install without onboarding, so every Ansible run
+would fail, and leave a failed onboarding session behind, until a key
+exists.
+
 ### D6 — Bootstrap automation via scripted CLIs
 
 The one-time bootstrap is automated by `scripts/bootstrap/` — modular,
