@@ -173,9 +173,12 @@ node.
    - **Passphrase prompt:** the initramfs couldn't join the tailnet. It gives
      up after about 3 minutes and then shows the prompt. Unlock via §8, then
      investigate: is there a Tailscale outage? Was the `tag:boot-unlock`
-     OAuth client revoked (§4 step 3)? The initramfs's own log isn't kept
-     after boot, so reproduce on a throwaway server from the same image
-     (`packer/README.md`) if the cause isn't obvious.
+     OAuth client revoked (§4 step 3)? The initramfs's logs survive until
+     the next reboot: `sudo cat /run/initramfs/tailscale-up.log` (the join
+     attempts, including OAuth errors) and
+     `/run/initramfs/tailscaled-boot.log` (the daemon). If the cause still
+     isn't obvious, reproduce on a throwaway server from the same image
+     (`packer/README.md`).
    - **Anything else** (kernel panic, GRUB, a login prompt): see
      `docs/runbooks/break-glass.md`.
 

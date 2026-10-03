@@ -31,11 +31,15 @@ mkdir -p /dev/net
 [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200
 mkdir -p /var/lib/tailscale /var/run /tmp
 
+# Logs go to /run/initramfs, which init creates before init-premount. Not
+# /var/log: the initramfs has none, and a failed redirect means the shell
+# never starts the command. /run moves to the real root at pivot, so after a
+# console unlock both logs are still readable (docs/troubleshooting.md §7).
 log_begin_msg "tailscale-boot: starting tailscaled"
 /usr/bin/tailscaled \
   --state=/var/lib/tailscale/tailscaled.state \
   --socket=/var/run/tailscale.sock \
-  --tun=tailscale0 >/var/log/tailscaled-boot.log 2>&1 &
+  --tun=tailscale0 >/run/initramfs/tailscaled-boot.log 2>&1 &
 
 # Bounded: init-premount runs BEFORE the cryptroot passphrase prompt, so an
 # unbounded `tailscale up` (default --timeout=0 waits forever, e.g. during a
@@ -49,7 +53,7 @@ while [ "$i" -lt 10 ]; do
       --advertise-tags="$(cat /etc/tailscale-boot/tags)" \
       --hostname="$(cat /etc/tailscale-boot/hostname)" \
       --accept-dns=false --accept-routes=false \
-      --timeout=15s >/dev/null 2>&1; then
+      --timeout=15s >>/run/initramfs/tailscale-up.log 2>&1; then
     joined=1
     break
   fi
