@@ -224,6 +224,11 @@ set -euo pipefail
 # tailscaled starts.
 sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX="ip=dhcp"/' /etc/default/grub
 sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=2/' /etc/default/grub
+# Single-OS server: never probe for other systems. os-prober (pulled in as a
+# grub-pc Recommends) mounts every partition — the open LUKS root included —
+# via grub-mount, a FUSE helper that can outlive the probe and keep
+# root_crypt busy at teardown.
+echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
 grub-install /dev/sda
 update-grub
 update-initramfs -c -k all
@@ -274,5 +279,38 @@ sync
 umount -R "$TARGET/dev" "$TARGET/proc" "$TARGET/sys" "$TARGET/run" || true
 umount "$TARGET/boot"
 umount "$TARGET"
-cryptsetup close "$MAPPER"
+# Something may briefly still hold root_crypt (udev probes, an exiting helper).
+# Retry; if it stays busy, show who holds it and continue — the filesystem is
+# already unmounted and synced, and the rescue system's shutdown before the
+# snapshot closes the mapping anyway.
+udevadm settle || true
+closed=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if cryptsetup close "$MAPPER" 2>/dev/null; then
+    closed=1
+    break
+  fi
+  sleep 3
+done
+if [[ "$closed" -eq 0 ]]; then
+  echo "WARNING: $MAPPER still in use after unmount; holders follow" >&2
+  dm="$(basename "$(readlink -f "/dev/mapper/$MAPPER")")"
+  ls -l "/sys/block/$dm/holders" >&2 || true
+  dmsetup ls >&2 || true
+  devno="$(dmsetup info -c --noheadings -o major,minor "$MAPPER" | tr -d ' ')"
+  for mi in /proc/[0-9]*/mountinfo; do
+    if grep -q " $devno " "$mi" 2>/dev/null; then
+      pid="${mi#/proc/}"
+      pid="${pid%/mountinfo}"
+      echo "  mounted in the namespace of pid $pid ($(cat "/proc/$pid/comm" 2>/dev/null))" >&2
+    fi
+  done
+  for fd in /proc/[0-9]*/fd/*; do
+    if [[ "$(readlink "$fd" 2>/dev/null)" == "/dev/$dm" ]]; then
+      pid="${fd#/proc/}"
+      pid="${pid%%/*}"
+      echo "  held open by pid $pid ($(cat "/proc/$pid/comm" 2>/dev/null))" >&2
+    fi
+  done
+fi
 echo "FDE image build complete — Packer will now snapshot."
