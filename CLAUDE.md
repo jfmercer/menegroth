@@ -37,7 +37,7 @@ uv run pre-commit run -a
 cd scripts/bootstrap && shellcheck -x ./*.sh && ./bootstrap.sh --dry-run
 ```
 
-Never run `terraform apply` or `packer build` locally. Apply happens on merge to master; Packer builds are `workflow_dispatch` only (each build boots a paid temporary server).
+Never run `terraform apply` or `packer build` locally. Apply happens on merge to master or a manual Terraform dispatch from master; Packer builds are `workflow_dispatch` only (each build boots a paid temporary server).
 
 The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architecture.md` D6): idempotent phase scripts (`10-onepassword` → `20-tailscale` → `30-infisical` → `40-github`) driven by `bootstrap.sh`, plus `preflight.sh` which validates the whole tenant before the first Packer build. The two public keys (`admin_ssh_public_key`, `mac_unlock_ssh_pubkey`) live in Infisical, **not** source — CI injects them as `TF_VAR_`/`PKR_VAR_`, so a local `terraform plan` needs `TF_VAR_admin_ssh_public_key` exported (`validate` does not). The only remaining source placeholder is `REPLACE_WITH_SERVER_PROJECT_ID` (the `infisical_server_project_id`) in `ansible/group_vars/all.yml`; the `validation` blocks on the two key variables (format `^ssh-`) must stay intact.
 
@@ -45,7 +45,7 @@ The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architect
 
 Seven workflows in `.github/workflows/` (all but renovate.yml path-filtered):
 
-- **terraform.yml** — fmt/validate/tflint + plan-as-PR-comment on PRs; auto-apply on master push. State lives in HCP Terraform (state-only backend, execution mode "Local").
+- **terraform.yml** — fmt/validate/tflint + plan-as-PR-comment on PRs; auto-apply on master push. Manual dispatch (master only) also applies; its `replace_server` checkbox is the image roll (`-replace=hcloud_server.menegroth`). State lives in HCP Terraform (state-only backend, execution mode "Local").
 - **ansible.yml** — lint + syntax check on PRs; on master push the runner joins the tailnet as an ephemeral `tag:ci` node and runs `site.yml` over Tailscale SSH (the server has zero public inbound ports).
 - **packer.yml** — fmt/validate on PRs; image build only via manual dispatch.
 - **shellcheck.yml** — shellchecks every tracked shell script plus the *rendered* Ansible templates (`scripts/ci/shellcheck-all.sh`); rendering also catches Jinja syntax errors, which ansible-lint/`--syntax-check` never see. Beware `${#…}` in `.j2` files: `{#` opens a Jinja comment.
@@ -61,7 +61,7 @@ Only three GitHub secrets exist (`TF_API_TOKEN`, `INFISICAL_CLIENT_ID`, `INFISIC
 Full rationale and decision log: `docs/architecture.md`. The layers compose in this order:
 
 1. **Packer** (`packer/`) builds an Ubuntu 26.04 snapshot with a LUKS2-encrypted root from the Hetzner rescue system. Its initramfs embeds static tailscale binaries + dropbear (key-only, forced `cryptroot-unlock` command) so the machine can be unlocked remotely at boot, and `tailscale-firstboot.service` joins a fresh server to the tailnet so Ansible can reach it (D10).
-2. **Terraform** (`terraform/`) boots the server from the newest `fde=true` snapshot. `lifecycle.ignore_changes = [image, user_data]` means new snapshots do NOT auto-replace the server — roll deliberately with `terraform apply -replace=hcloud_server.menegroth`.
+2. **Terraform** (`terraform/`) boots the server from the newest `fde=true` snapshot. `lifecycle.ignore_changes = [image, user_data]` means new snapshots do NOT auto-replace the server — roll deliberately via the Terraform workflow's `replace_server` dispatch (`terraform apply -replace=hcloud_server.menegroth`; `docs/runbooks/key-rotation.md`).
 3. **Ansible** (`ansible/site.yml`) provisions in strict role order: `harden` → `tailscale` → `infisical` → `luks_volume` → `nemoclaw` → `ops` → `dotfiles` (optional; no-op unless the `DOTFILES_*` repository variables are set — D12). Later roles depend on earlier ones (e.g. `luks_volume` needs `/usr/local/bin/infisical-get`; `nemoclaw` asserts `/data` is mounted). The `tailscale` role does not join the tailnet — the image does; the role asserts the node is Running.
 4. **Mac unlock agent** (`macos/`) — a launchd job polling every 30 s. When the server reboots, its initramfs joins the tailnet as an ephemeral `tag:boot-unlock` node; the agent detects it, verifies it answers directly from the server's Primary IP (D11), reads the passphrase from 1Password, and pipes it over SSH into `cryptroot-unlock`. When it can't verify, `docs/troubleshooting.md` is the playbook.
 

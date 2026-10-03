@@ -4,7 +4,8 @@ resource "hcloud_ssh_key" "admin" {
 }
 
 # Newest FDE snapshot from the Packer pipeline. New snapshots do NOT
-# auto-replace the server (see ignore_changes below); roll deliberately with:
+# auto-replace the server (see ignore_changes below); roll deliberately with
+# the Terraform workflow's replace_server dispatch, which runs:
 #   terraform apply -replace=hcloud_server.menegroth
 data "hcloud_image" "fde" {
   with_selector     = var.fde_image_selector
