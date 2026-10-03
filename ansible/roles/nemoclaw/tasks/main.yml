@@ -112,7 +112,21 @@
     to_port: "{{ nemoclaw_gateway_port | string }}"
     comment: NemoClaw sandboxes to OpenShell gateway
 
+# The installer always ends by onboarding, which can't pass non-interactively
+# without an inference key (defaults/main.yml). Skip it until one is
+# configured, rather than fail every run. No marker is written, so the first
+# run with a key installs.
+- name: Skip the NemoClaw installer until a provider key is configured
+  ansible.builtin.debug:
+    msg: >-
+      NemoClaw is not installed yet: no inference provider key is configured.
+      Store an API key in Infisical under /server and set
+      nemoclaw_provider_key_secret and nemoclaw_provider_key_env (and
+      nemoclaw_provider, if not anthropic); see the nemoclaw role defaults.
+  when: nemoclaw_provider_key_secret | length == 0
+
 - name: Run the pinned NemoClaw installer (once per release, per root disk)
+  when: nemoclaw_provider_key_secret | length > 0
   block:
     - name: Run the pinned NemoClaw installer
       ansible.builtin.command: /usr/local/bin/nemoclaw-install
