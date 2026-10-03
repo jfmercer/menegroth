@@ -156,9 +156,12 @@ CHROOT
 
 echo "=== 6/8 Initramfs: dropbear + tailscale"
 # Dropbear: key-only, forced command, no forwarding, generous unlock window.
+# IFDOWN=none: dropbear's init-bottom would otherwise take the network down
+# before ours logs the boot node out; ours brings it down afterwards instead.
 mkdir -p "$TARGET/etc/dropbear/initramfs"
 cat > "$TARGET/etc/dropbear/initramfs/dropbear.conf" <<'EOF'
 DROPBEAR_OPTIONS="-I 600 -j -k -s -p 22"
+IFDOWN=none
 EOF
 printf 'no-port-forwarding,no-agent-forwarding,command="cryptroot-unlock" %s\n' \
   "$MAC_UNLOCK_PUBKEY" > "$TARGET/etc/dropbear/initramfs/authorized_keys"

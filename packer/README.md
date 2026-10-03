@@ -79,6 +79,9 @@ cd packer && packer init . && packer build .
    node from the tailnet afterwards if production is already running).
 2. Watch the tailnet: a `menegroth-server-boot` node appears within ~1
    minute (proves DNS + CA roots + OAuth exchange work in the initramfs).
+   If none appears, unlock at the console (step 4) and read
+   `/run/initramfs/tailscale-up.log` and `/run/initramfs/tailscaled-boot.log`
+   on the server.
 3. **Prove the boot node's origin before sending the passphrase:**
    `tailscale ping --until-direct <boot-node-tailnet-ip>` must end with
    `via <throwaway's public IPv4>:<port>`, matching the IP the Hetzner console

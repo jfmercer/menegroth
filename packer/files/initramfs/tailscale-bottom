@@ -1,15 +1,44 @@
 #!/bin/sh
 # initramfs-tools init-bottom SCRIPT: after the root volume is unlocked and
 # just before pivoting to the real root, log the ephemeral boot node out
-# (removing it from the tailnet immediately) and stop tailscaled so the
-# real system's own tailscale node starts clean.
-PREREQ=""
+# (removing it from the tailnet immediately), stop tailscaled so the real
+# system's own tailscale node starts clean, then take the network down.
+#
+# Runs after dropbear's init-bottom (PREREQ), which ends the unlock SSH
+# session. dropbear.conf sets IFDOWN=none so that script leaves the network
+# up for the logout; with its default it would take every interface down
+# first, and the logout could never reach the control plane.
+PREREQ="dropbear"
 prereqs() { echo "$PREREQ"; }
 case "$1" in
   prereqs) prereqs; exit 0 ;;
 esac
 
-/usr/bin/tailscale --socket=/var/run/tailscale.sock logout >/dev/null 2>&1 || true
+# Bounded, like the join: a control-plane outage must not stall the boot.
+/usr/bin/tailscale --socket=/var/run/tailscale.sock logout >/dev/null 2>&1 &
+logout_pid=$!
+(sleep 10 && kill "$logout_pid") >/dev/null 2>&1 &
+watchdog_pid=$!
+wait "$logout_pid" 2>/dev/null
+kill "$watchdog_pid" >/dev/null 2>&1
+
+# On SIGTERM tailscaled exits and removes tailscale0 itself.
 kill "$(pidof tailscaled)" >/dev/null 2>&1 || true
+i=0
+while [ -e /sys/class/net/tailscale0 ] && [ "$i" -lt 5 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+kill -9 "$(pidof tailscaled)" >/dev/null 2>&1 || true
 ip link del tailscale0 >/dev/null 2>&1 || true
+
+# What dropbear's init-bottom does with its default IFDOWN="*": leave no
+# initramfs network configuration behind for the real system.
+for iface in /sys/class/net/*; do
+  [ -e "$iface" ] || continue
+  iface="${iface#/sys/class/net/}"
+  ip link set dev "$iface" down
+  ip address flush dev "$iface"
+  ip route flush dev "$iface"
+done
 exit 0
