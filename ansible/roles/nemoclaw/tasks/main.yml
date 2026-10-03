@@ -95,10 +95,38 @@
     group: root
     mode: "0755"
 
+# Sandboxes are Docker containers that call the OpenShell gateway on their
+# bridge's gateway address (e.g. 172.18.0.1:8080). To the host that is
+# inbound traffic, so ufw's default deny drops it, and onboarding fails its
+# sandbox-to-gateway reachability probe. Allow exactly that path: Docker's
+# default bridge pools (172.17-31.x, inside 172.16.0.0/12) to the gateway
+# port. The gateway uses mTLS, and the Hetzner firewall still blocks the
+# port from outside.
+- name: Allow sandbox containers to reach the OpenShell gateway
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    from_ip: 172.16.0.0/12
+    to_ip: 172.16.0.0/12
+    to_port: "{{ nemoclaw_gateway_port | string }}"
+    comment: NemoClaw sandboxes to OpenShell gateway
+
 - name: Run the pinned NemoClaw installer (once per release, per root disk)
-  ansible.builtin.command: /usr/local/bin/nemoclaw-install
-  args:
-    creates: /var/lib/nemoclaw-provisioned/{{ nemoclaw_install_tag }}
-  # The wrapper exports the provider API key (when configured) into the
-  # installer env.
-  no_log: true
+  block:
+    - name: Run the pinned NemoClaw installer
+      ansible.builtin.command: /usr/local/bin/nemoclaw-install
+      args:
+        creates: /var/lib/nemoclaw-provisioned/{{ nemoclaw_install_tag }}
+      # The wrapper exports the provider API key (when configured) into the
+      # installer env.
+      no_log: true
+  rescue:
+    # no_log hides the installer's output, and CI logs are public, so the
+    # wrapper keeps it in a root-only log on the server instead.
+    - name: Point at the installer log
+      ansible.builtin.fail:
+        msg: >-
+          The NemoClaw installer failed. Its output is not shown here
+          (no_log); on the server, read it with:
+          sudo tail -n 100 /var/log/nemoclaw-install.log

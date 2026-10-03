@@ -197,7 +197,8 @@ credentials plus `TF_API_TOKEN`.
 The Hetzner Cloud Firewall has **no inbound rules** (default deny) once
 Tailscale is up. Tailscale needs only outbound UDP. `ufw` on the host mirrors
 the default-deny inbound policy as defense in depth (allowing the `tailscale0`
-interface). SSH:
+interface, plus one narrow rule for NemoClaw: Docker bridge addresses to the
+OpenShell gateway port, see D5). SSH:
 
 - Human access: Tailscale SSH, authorized via tailnet ACLs.
 - CI access: the GitHub Actions runner joins the tailnet as an ephemeral node
@@ -269,6 +270,14 @@ no sudo (it would otherwise run `sudo sh get.docker.com` + `usermod`).
 binds published ports to `127.0.0.1` (Docker's iptables rules bypass ufw;
 the Hetzner firewall still blocks everything, so this restores the host
 layer of defense in depth), and uses the size-capped `local` log driver.
+Sandboxes call the OpenShell gateway on their bridge's gateway address
+(e.g. `172.18.0.1:8080`), which is inbound traffic to the host. ufw
+therefore allows Docker's default bridge range (`172.16.0.0/12`) to that
+port only, and onboarding fails its reachability probe without the rule.
+*Alternative considered:* NemoClaw's own `NEMOCLAW_AUTO_FIX_FIREWALL`, which
+writes the same rule but needs sudo, which the `nemoclaw` user doesn't have.
+The installer's output goes to a root-only `/var/log/nemoclaw-install.log`,
+since Ansible hides it (`no_log`) and CI logs are public.
 **Accepted risk:** `docker` group membership is root-equivalent, as
 NemoClaw's own docs warn, so a compromise of the `nemoclaw` account is a
 host compromise. The agents' isolation boundary is the OpenShell sandbox,

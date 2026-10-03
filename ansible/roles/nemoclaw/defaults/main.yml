@@ -28,6 +28,10 @@ nemoclaw_provider_key_env: ""
 # suggested = NemoClaw's hardened default network policy
 nemoclaw_policy_mode: suggested
 nemoclaw_sandbox_name: main
+# OpenShell gateway port (exported to the installer as NEMOCLAW_GATEWAY_PORT).
+# Sandbox containers call it on their Docker bridge's gateway address, so
+# ufw allows it from the bridges (tasks/main.yml).
+nemoclaw_gateway_port: 8080
 
 # ---- Memory (8 GB host; docs/architecture.md → Hardware) -------------------
 # The sandboxes, k3s, and the OpenShell gateway are DOCKER CONTAINERS, which
