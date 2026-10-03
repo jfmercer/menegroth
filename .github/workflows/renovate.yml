@@ -30,7 +30,7 @@ concurrency:
 jobs:
   renovate:
     name: Renovate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read # clone the repo; all writes use the App token, not GITHUB_TOKEN
     steps:

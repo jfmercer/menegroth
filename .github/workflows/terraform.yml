@@ -27,7 +27,7 @@ defaults:
 jobs:
   terraform:
     name: Plan / apply
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read # clone the repo
       pull-requests: write # plan-as-PR-comment step

@@ -77,6 +77,21 @@ variable "tailscale_apt_key_sha256" {
   default = "3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39"
 }
 
+variable "ubuntu_keyring_version" {
+  type = string
+  # ubuntu-keyring in ubuntu_series' RELEASE pocket (frozen after release):
+  # supplies Ubuntu's archive keys to debootstrap. Bump together with the
+  # SHA-256 below when changing ubuntu_series.
+  default = "2023.11.28.1build1"
+}
+
+variable "ubuntu_keyring_deb_sha256" {
+  type = string
+  # SHA-256 of ubuntu-keyring_<version>_all.deb, as listed in the series'
+  # signed Packages index (dists/<series>/main/binary-amd64/Packages.gz).
+  default = "c377ccf26964f4c206c05c0bc7adb708e031beb919bb9a0ff63af983d064cd66"
+}
+
 variable "boot_hostname" {
   type    = string
   default = "menegroth-server-boot" # the initramfs tailnet node name
@@ -134,6 +149,8 @@ build {
       "UBUNTU_SERIES=${var.ubuntu_series}",
       "TAILSCALE_VERSION=${var.tailscale_version}",
       "TS_APT_KEY_SHA256=${var.tailscale_apt_key_sha256}",
+      "UBUNTU_KEYRING_VERSION=${var.ubuntu_keyring_version}",
+      "UBUNTU_KEYRING_DEB_SHA256=${var.ubuntu_keyring_deb_sha256}",
       "BOOT_HOSTNAME=${var.boot_hostname}",
       "BOOT_TAG=${var.boot_tag}",
       "SERVER_HOSTNAME=${var.server_hostname}",
