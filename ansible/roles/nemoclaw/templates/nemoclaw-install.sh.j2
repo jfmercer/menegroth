@@ -44,6 +44,18 @@ else:
     failed-before-sandbox)
       echo "nemoclaw-install: last onboarding failed before creating a sandbox; starting fresh"
       fresh=1
+      # That run may have left its gateway running. The installer replaces
+      # the gateway binary, after which onboarding no longer recognizes the
+      # old process as its own and refuses the busy port ("Port 8080 is not
+      # available"). With no sandbox yet, stopping it loses nothing.
+      if pkill -u {{ nemoclaw_user }} -f openshell-gateway; then
+        for _ in $(seq 1 15); do
+          pgrep -u {{ nemoclaw_user }} -f openshell-gateway >/dev/null || break
+          sleep 1
+        done
+        pkill -KILL -u {{ nemoclaw_user }} -f openshell-gateway || true
+        echo "nemoclaw-install: stopped the failed run's leftover gateway"
+      fi
       ;;
     failed-after-sandbox)
       echo "nemoclaw-install: last onboarding failed after creating a sandbox." >&2
