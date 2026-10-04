@@ -58,6 +58,27 @@ variable "mac_unlock_ssh_pubkey" {
   }
 }
 
+variable "test_unlock_ssh_pubkey" {
+  type = string
+  # A second dropbear key for the automated image test (packer.yml): CI makes
+  # a fresh keypair for every build, bakes the public half in here, unlocks
+  # the throwaway test server with the private half, and discards it when the
+  # job ends. No copy of that private key outlives the job, so the extra
+  # authorized_keys line in the image is inert. Empty = Mac key only.
+  default = ""
+  validation {
+    condition     = var.test_unlock_ssh_pubkey == "" || can(regex("^ssh-", var.test_unlock_ssh_pubkey))
+    error_message = "The test_unlock_ssh_pubkey must be empty or an OpenSSH public key (starts with 'ssh-')."
+  }
+}
+
+variable "commit_sha" {
+  type = string
+  # Recorded as the snapshot's `commit` label, so a snapshot traces back to
+  # the code that built it. CI passes github.sha.
+  default = ""
+}
+
 variable "ubuntu_series" {
   type    = string
   default = "resolute" # 26.04 — must match the fleet
@@ -124,10 +145,14 @@ source "hcloud" "fde" {
   rescue        = "linux64"      # build happens from the rescue system
   ssh_username  = "root"
   snapshot_name = "fde-ubuntu-26.04-{{timestamp}}"
+  # fde=candidate: Terraform selects fde=true only. The image test in
+  # packer.yml promotes a snapshot to fde=true once a throwaway server built
+  # from it has passed (master builds only), and deletes it otherwise.
   snapshot_labels = {
-    fde  = "true"
-    os   = "ubuntu-26.04"
-    role = "menegroth-server-base"
+    fde    = "candidate"
+    os     = "ubuntu-26.04"
+    role   = "menegroth-server-base"
+    commit = var.commit_sha
   }
 }
 
@@ -146,6 +171,7 @@ build {
       "TS_BOOT_OAUTH_SECRET=${var.boot_tailscale_oauth_secret}",
       "TS_SERVER_OAUTH_SECRET=${var.server_tailscale_oauth_secret}",
       "MAC_UNLOCK_PUBKEY=${var.mac_unlock_ssh_pubkey}",
+      "TEST_UNLOCK_PUBKEY=${var.test_unlock_ssh_pubkey}",
       "UBUNTU_SERIES=${var.ubuntu_series}",
       "TAILSCALE_VERSION=${var.tailscale_version}",
       "TS_APT_KEY_SHA256=${var.tailscale_apt_key_sha256}",
@@ -156,5 +182,11 @@ build {
       "SERVER_HOSTNAME=${var.server_hostname}",
       "SERVER_TAG=${var.server_tag}",
     ]
+  }
+
+  # The snapshot ID for the image test that follows the build (packer.yml).
+  post-processor "manifest" {
+    output     = "${path.root}/packer-manifest.json"
+    strip_path = true
   }
 }

@@ -26,11 +26,11 @@ after any significant change). They mirror the build phases.
 
 ## FDE root & automated unlock
 
-- [ ] Fresh image (throwaway server): boot node appears on the tailnet within
-      ~1 min; manual `ssh root@<boot-node>` unlock works; Hetzner console
-      passphrase entry works (`packer/README.md` steps 1–5).
-- [ ] Kernel-update survival: reinstall the kernel package, reboot, boot node
-      still joins (initramfs hook re-embedded tailscale).
+- Automated on every image build (Packer workflow, `scripts/ci/image-test.sh`):
+  a throwaway server's boot node joins, answers from its own address, and
+  unlocks over dropbear; it rejoins as `menegroth-server` with its
+  first-boot credential gone; kernel-update survival (reinstall, reboot,
+  unlock again). Not automated: passphrase entry at the Hetzner console.
 - [ ] Hands-off `sudo reboot` → Mac agent unlocks within ~2–3 min, ntfy
       "unlocked" notification arrives, all services recover — **with the
       1Password app locked and quit** (proves the service-account path).

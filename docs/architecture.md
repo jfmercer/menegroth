@@ -161,6 +161,9 @@ separate server project (member: `server` identity) holds `/server`:
 /ci/ADMIN_SSH_PUBLIC_KEY   Its public half (TF_VAR_admin_ssh_public_key in CI)
 /ci/TS_SERVER_OAUTH_SECRET tag:server OAuth client secret — baked onto the
                            encrypted root for the first-boot join (D10)
+/ci/TS_DEVICES_OAUTH_CLIENT_ID  devices:core OAuth client (tags tag:server +
+/ci/TS_DEVICES_OAUTH_SECRET     tag:boot-unlock): CI removes the image test's
+                                and an image roll's old tailnet nodes (D13)
 /ci/SERVER_IDENTITY_CLIENT_ID      Credentials of the "server" machine identity,
 /ci/SERVER_IDENTITY_CLIENT_SECRET  delivered onto the host by the infisical role
 /ci/RENOVATE_APP_ID                Renovate GitHub App — exchanged in renovate.yml
@@ -230,7 +233,10 @@ Tailnet policy needed (configured in the Tailscale admin console):
     // nothing (no rule has tag:boot-unlock as src). dropbear is ordinary SSH
     // over the tailnet, not Tailscale SSH — hence an acls port-22 rule, not an
     // ssh block entry.
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:boot-unlock:22"] }
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:boot-unlock:22"] },
+    // CI unlocks the image test's throwaway server (D13). CI already holds the
+    // passphrase (/unlock, for image builds), so this grants no new secret.
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:boot-unlock:22"] }
   ],
   "ssh": [
     { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server"], "users": ["admin", "root"] },
@@ -480,7 +486,8 @@ authenticated with the peer's key and must be *received* at that address,
 so even an attacker who can spoof source IPs can't produce it without being
 on-path at Hetzner. Outcomes:
 **verified** → unlock; **unverified** (relay only, no reply) → safe refusal,
-alert after 3 min; **mismatch** → possible impersonation, urgent alert. The
+alert after 5 min; **mismatch** → possible impersonation, urgent alert after
+5 min (an image test's throwaway, D13, is a mismatch until CI unlocks it). The
 agent fails closed with no address configured. The server's public IPs
 become Hetzner **Primary IPs** (`auto_delete = false`, delete-protected), so
 they survive `-replace` image rolls and the check needs no per-roll upkeep.
@@ -526,6 +533,58 @@ skipping the dotfiles' own scripts — rejected: it puts one operator's
 packages into the config every operator shares; tracking a branch — rejected:
 root for anyone who can push to it; Renovate-managed pins — impossible
 without putting the operator's repo in source.
+
+### D13 — Every new image is tested on a throwaway server before it can roll
+
+*(2026-10-04.)* A broken image breaks the remote unlock, and a production
+server that can't be unlocked over the tailnet needs the Hetzner console.
+So every image change needed the manual throwaway-server test in
+`packer/README.md`: about half an hour of hand work, and a spare server the
+operator didn't have. Image fixes waited unmerged.
+
+**Decision:** the Packer workflow tests every image it builds, in the same
+job (`scripts/ci/image-test.sh`). It boots a throwaway cpx22 from the new
+snapshot and waits for its boot node. It verifies the node's origin with the
+Mac agent's D11 check, run from the runner (a direct pong from the
+throwaway's own address), then unlocks it over dropbear. Next it checks the
+booted system: no failed units, root on LUKS2, the first-boot join, the
+network state, and the Mac's key inside the initramfs. Then it reinstalls the
+kernel, reboots, and unlocks again: the kernel-update survival test. Last, it
+deletes the server, its firewall, and its tailnet node. Packer labels
+snapshots `fde=candidate`; Terraform selects `fde=true`, which only a passing
+build from master receives. Every other snapshot is deleted. Dispatching
+from a PR branch tests that branch's image without promoting it. The roll
+itself is one click: the Terraform dispatch removes the old server's tailnet
+node once Hetzner has deleted the server, gives the new node the name
+`menegroth-server` if its join got a suffixed one, and runs the Ansible
+workflow (`scripts/ci/image-roll.sh`).
+
+**Trust:** CI already holds the root passphrase (`/unlock`, for image
+builds), so the new ACL rule (`tag:ci` → `tag:boot-unlock:22`) gives it reach
+to dropbear, not a new secret, and it sends the passphrase only after the
+same origin check as the Mac. It unlocks with a per-build key: generated in
+the job, baked into that image as a second dropbear key, discarded when the
+job ends. The extra `authorized_keys` line in production images is inert,
+because no copy of its private half survives. The throwaway's firewall
+admits inbound UDP only, so the runner can reach it over a direct path. The
+Mac agent still never sends the passphrase to a mismatched origin; its
+impersonation alert now waits out the same 5-minute grace as a refusal,
+which the test's boot nodes (gone within a minute or two) never reach. A
+new OAuth client (`devices:core`, limited to `tag:server` and
+`tag:boot-unlock`) lets CI delete tailnet nodes, never a person's device.
+
+*Alternatives considered:* keep the manual test — rejected: it is why image
+fixes stalled; unlock the throwaway at the Hetzner console — impossible
+unattended, there is no API to type into it (the console path stays
+untested by design: it is stock Ubuntu cryptsetup); a long-lived CI unlock
+key in Infisical — rejected: a per-build key leaves no standing credential;
+have the Mac agent stand down while it sees the CI runner — rejected: the
+Mac can't see `tag:ci` nodes without a broader ACL, and an impostor could
+fake any self-declared signal to silence the alert; `tailscale logout` to
+remove the throwaway's node — rejected: a non-ephemeral node only expires,
+it stays in the tailnet. *Cost:* a dispatch takes ~45 minutes and two
+short-lived cpx22s (pennies); the operator creates one more OAuth client
+once.
 
 ## Provisioning flow
 

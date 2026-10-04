@@ -94,11 +94,14 @@ double NAT.
 direct path from an address that is **not** the server's Primary IP. The
 agent sent nothing.
 
-**First, rule out the benign case.** Are you verifying a new image on a
-throwaway server (`packer/README.md`)? It has a different IP, so this alert
-is expected. Confirm in the Hetzner console that a throwaway server exists
-with exactly the address shown in the alert. If so, nothing is wrong; pause
-the agent during such tests (`packer/README.md`).
+**First, rule out the benign case.** Is an image test running (the
+"Packer FDE image" workflow, or a manual test on a throwaway server,
+`packer/README.md`)? The throwaway has a different IP, so the agent refuses
+it. The automated test unlocks its throwaway within a minute or two, well
+inside the agent's 5-minute grace, so the alert fires only if a test got
+stuck at the unlock prompt. Confirm in the Hetzner console that a server
+named `menegroth-image-test-…` exists with exactly the address shown in the
+alert. If so, nothing is wrong: the workflow deletes it when the job ends.
 
 **Otherwise, treat it as a security incident.** The most likely explanation
 is that someone has a copy of the server's disk (a backup, snapshot, or the
@@ -227,5 +230,5 @@ D2.)
 7. **Fix the cause** (sections above) before the next scheduled reboot.
 
 Never fall back to SSH-ing into the boot node and typing the passphrase
-there. Even on a throwaway test server, first prove the node's origin
-(`packer/README.md`, verification step 3).
+there. Even on a throwaway test server, first prove the node's origin, as
+`scripts/ci/image-test.sh` does (`packer/README.md`).

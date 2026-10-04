@@ -72,6 +72,11 @@ put /ci TS_OAUTH_SECRET              "${TS_OAUTH_SECRET:-}"
 # tag:server OAuth client — baked onto the encrypted root for the first-boot
 # tailnet join (Packer reads it from /ci).
 oauth_put /ci TS_SERVER_OAUTH_SECRET "${TS_SERVER_OAUTH_SECRET:-}"
+# Devices OAuth client (scope devices:core; tags tag:server + tag:boot-unlock):
+# lets CI remove the image test's throwaway node and the old node on an image
+# roll (scripts/ci/tailnet-devices.sh, D13).
+put /ci TS_DEVICES_OAUTH_CLIENT_ID   "${TS_DEVICES_OAUTH_CLIENT_ID:-}"
+oauth_put /ci TS_DEVICES_OAUTH_SECRET "${TS_DEVICES_OAUTH_SECRET:-}"
 put /ci SERVER_IDENTITY_CLIENT_ID     "${SERVER_IDENTITY_CLIENT_ID:-}"
 put /ci SERVER_IDENTITY_CLIENT_SECRET "${SERVER_IDENTITY_CLIENT_SECRET:-}"
 # GitHub App the self-hosted Renovate workflow (.github/workflows/renovate.yml)

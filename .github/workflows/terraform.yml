@@ -11,9 +11,10 @@ on:
     inputs:
       replace_server:
         description: >-
-          Image roll: destroy the server and recreate it from the newest FDE
-          snapshot (terraform apply -replace=hcloud_server.menegroth). Read
-          docs/runbooks/key-rotation.md first.
+          Image roll: destroy the server and recreate it from the newest
+          tested FDE snapshot (terraform apply -replace=hcloud_server.menegroth),
+          hand it the menegroth-server tailnet name, then run Ansible. Needs
+          the Mac awake to unlock it. See docs/runbooks/key-rotation.md.
         type: boolean
         default: false
 
@@ -128,6 +129,14 @@ jobs:
         if: github.event_name == 'pull_request' && steps.plan.outcome == 'failure'
         run: exit 1
 
+      # Image roll: remember the old server's tailnet node, so it can be
+      # removed once the server is gone and the new one can take its name.
+      - name: Record the server's tailnet node
+        id: roll_before
+        if: github.event_name == 'workflow_dispatch' && inputs.replace_server
+        working-directory: .
+        run: scripts/ci/image-roll.sh before
+
       - name: terraform apply
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
@@ -138,3 +147,26 @@ jobs:
             args+=(-replace=hcloud_server.menegroth)
           fi
           terraform apply "${args[@]}"
+
+      # Runs after a failed apply too: if the old server is gone, its node
+      # must go. The script leaves the node alone while the server exists.
+      - name: Hand the tailnet name to the new server
+        if: always() && steps.roll_before.outcome == 'success'
+        working-directory: .
+        run: scripts/ci/image-roll.sh after
+
+  # A freshly rolled server has only the image; provision it. A separate job,
+  # so only this step holds actions: write.
+  provision:
+    name: Provision the rolled server
+    needs: terraform
+    if: github.event_name == 'workflow_dispatch' && inputs.replace_server
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: write # dispatch the Ansible workflow
+    steps:
+      - name: Run the Ansible workflow
+        working-directory: ${{ runner.temp }} # no checkout here; the default terraform/ doesn't exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ansible.yml --repo "$GITHUB_REPOSITORY" --ref master

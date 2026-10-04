@@ -23,7 +23,9 @@ require_env TS_API_TOKEN "admin console -> Settings -> Keys -> generate API acce
 # ---- ACL policy -------------------------------------------------------------
 # Mirrors docs/architecture.md#tailscale-acls. Replaces the whole policy file,
 # so we confirm first. dropbear (tag:boot-unlock:22) is an L3 rule, not an ssh
-# rule, because the initramfs runs ordinary SSH, not Tailscale SSH.
+# rule, because the initramfs runs ordinary SSH, not Tailscale SSH. tag:ci
+# reaches it for the automated image test (D13), which unlocks a throwaway
+# server built from a new image.
 read -r -d '' ACL_POLICY <<JSON || true
 {
   "tagOwners": {
@@ -34,7 +36,8 @@ read -r -d '' ACL_POLICY <<JSON || true
   "acls": [
     { "action": "accept", "src": ["autogroup:member"], "dst": ["$SERVER_TAG:*"] },
     { "action": "accept", "src": ["$CI_TAG"], "dst": ["$SERVER_TAG:22"] },
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["$BOOT_TAG:22"] }
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["$BOOT_TAG:22"] },
+    { "action": "accept", "src": ["$CI_TAG"], "dst": ["$BOOT_TAG:22"] }
   ],
   "ssh": [
     { "action": "accept", "src": ["autogroup:member"], "dst": ["$SERVER_TAG"], "users": ["admin", "root"] },

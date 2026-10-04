@@ -14,6 +14,9 @@ terraform.rc
 *.auto.tfvars
 terraform.tfvars
 
+# Packer — build output (the image test reads the snapshot ID from it)
+packer/packer-manifest.json
+
 # Ansible
 *.retry
 ansible/.vault_pass

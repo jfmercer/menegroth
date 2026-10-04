@@ -47,36 +47,34 @@ disk image for the `/boot` copy) or as hygiene:
 
 ## Rolling the server onto a new image
 
-```bash
-# 1. Remove the old node from the tailnet FIRST (admin console → Machines →
-#    menegroth-server → Remove). Otherwise the new server's first-boot join
-#    gets the name menegroth-server-1, and Ansible (MagicDNS menegroth-server)
-#    keeps targeting the dead node.
-# 2. Roll: Actions → Terraform → Run workflow, branch master, tick
-#    "replace_server". That runs, in CI:
-terraform apply -replace=hcloud_server.menegroth
-#    (Locally only in an emergency.) The server is destroyed and recreated,
-#    and Hetzner deletes its automatic backups with it: convert any you
-#    want to keep into snapshots first. /data and the Primary IPs survive.
-# 3. The new server waits at the unlock prompt; the Mac agent unlocks it;
-#    tailscale-firstboot joins it as menegroth-server. Then re-run the
-#    Ansible workflow (Actions → Ansible → Re-run) to provision it.
-```
+1. **Build and test** the image: Actions → Packer FDE image → Run workflow,
+   branch master. The job tests the image on a throwaway server and promotes
+   it to `fde=true` only if it passes (`packer/README.md`, D13). Nothing
+   else can roll.
+2. **Roll:** Actions → Terraform → Run workflow, branch master, tick
+   `replace_server`, with the Mac awake (the new server waits at the unlock
+   prompt for the agent). In CI this runs
+   `terraform apply -replace=hcloud_server.menegroth`, then
+   `scripts/ci/image-roll.sh`: once Hetzner has deleted the old server, its
+   tailnet node is removed, the new server is unlocked by the Mac agent and
+   joins, it gets the name `menegroth-server` if its join took a suffixed
+   one, and the Ansible workflow provisions it. Watch the run; a failure
+   says what to do.
+
+The server is destroyed and recreated, and Hetzner deletes its automatic
+backups with it: convert any you want to keep into snapshots first. `/data`
+and the Primary IPs survive. (Locally, only in an emergency: the same
+`terraform apply -replace`, then remove the old `menegroth-server` node in
+the admin console before the new server joins, and run the Ansible workflow.)
 
 The public IPs are Hetzner **Primary IPs** that survive the replacement, so
 the Mac agent's origin check (`SERVER_IPV4`) keeps working with no change.
 
-**After any image roll:** the new image carries freshly generated dropbear
-host keys. The Mac unlock agent pins host keys by boot-node IP in
-`~/.local/state/menegroth-server-unlock/known_hosts`
-(`StrictHostKeyChecking=accept-new`), so if the new boot node comes up on a
-tailnet IP an old image once used, the unlock SSH hard-fails on the key
-mismatch and reboots stop being hands-free. Clear the pin cache on the Mac
-after every image roll:
-
-```bash
-rm -f ~/.local/state/menegroth-server-unlock/known_hosts
-```
+Image rolls need nothing on the Mac: the agent doesn't pin dropbear host
+keys (D11), so a new image's freshly generated keys are fine. (Agents
+installed before this change pinned them in
+`~/.local/state/menegroth-server-unlock/known_hosts`; re-running
+`macos/install.sh` updates the agent, after which that file can go.)
 
 ## Data-volume LUKS key
 
