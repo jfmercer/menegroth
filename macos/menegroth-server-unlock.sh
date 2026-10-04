@@ -22,7 +22,10 @@
 #   unverified — no direct path (relay only / no reply): SAFE REFUSAL; never
 #                unlock, alert after a grace period (docs/troubleshooting.md).
 #   mismatch   — direct pong from some OTHER address: possible impersonation;
-#                never unlock, urgent alert.
+#                never unlock, urgent alert after the same grace period. The
+#                grace covers the automated image test (packer.yml), whose
+#                throwaway server's boot node is exactly such a node for the
+#                minute or two until CI unlocks it.
 # Fail closed: with no SERVER_IPV4 configured, the agent never unlocks.
 #
 # usage: menegroth-server-unlock [--diagnose]
@@ -50,7 +53,7 @@ OP_SSH_KEY_REF="op://${OP_VAULT}/unlock-ssh-key/private key?ssh-format=openssh"
 OP_NTFY_REF="op://${OP_VAULT}/ntfy/url"
 COOLDOWN_SECONDS=120      # don't re-attempt within this window
 STUCK_ALERT_SECONDS=600   # alert if the prompt sits unlocked this long
-VERIFY_GRACE_SECONDS=180  # alert on a safe refusal once it lasts this long
+VERIFY_GRACE_SECONDS=300  # alert on a refusal or mismatch once it lasts this long
 # The server's Hetzner Primary IPs (terraform outputs server_ipv4 /
 # server_ipv6_network). Set by macos/install.sh. Empty = never unlock.
 SERVER_IPV4=""
@@ -220,8 +223,12 @@ while read -r ip name; do
   case "$ORIGIN_STATUS" in
     verified) [[ -n "$target" ]] || target="$ip" ;;
     mismatch)
-      alert_once mismatch_alerted urgent "Menegroth server: UNVERIFIED boot node (possible impersonation)" \
-        "A tag:boot-unlock node ($name, $ip) answered directly from $ORIGIN_EP, which is NOT the server's address. The passphrase was NOT sent. Unless you are testing a new image, treat this as a security incident: docs/troubleshooting.md."
+      # Withheld either way; the alert waits out the grace period because an
+      # image test's throwaway looks exactly like this until CI unlocks it.
+      if (( now - first_seen > VERIFY_GRACE_SECONDS )); then
+        alert_once mismatch_alerted urgent "Menegroth server: UNVERIFIED boot node (possible impersonation)" \
+          "A tag:boot-unlock node ($name, $ip) has been answering directly from $ORIGIN_EP, which is NOT the server's address, for over $((VERIFY_GRACE_SECONDS / 60)) min. The passphrase was NOT sent. An image test unlocks its throwaway well within that time, so treat this as a security incident: docs/troubleshooting.md."
+      fi
       ;;
     unverified) unverified="$name ($ip) via $ORIGIN_EP" ;;
   esac
@@ -267,13 +274,18 @@ chmod 600 "$keydir/id"
 # No trailing newline: with stdin not a TTY, cryptroot-unlock passes it to
 # cryptsetup byte for byte (cat into askpass's fifo, which strips nothing),
 # and the disk was formatted with exactly the passphrase's bytes.
+# No persistent host-key pin: the dropbear host keys sit on the unencrypted
+# /boot, so pinning them proves nothing a disk copy couldn't fake (D11). The
+# origin check above is what authenticates the node, and the session runs
+# inside the WireGuard tunnel to that node's key. A pin file only broke
+# unlocks after image rolls, when a new key met a reused tailnet IP.
 if printf '%s' "$passphrase" | ssh \
     -i "$keydir/id" \
     -o BatchMode=yes \
     -o IdentitiesOnly=yes \
     -o ConnectTimeout=10 \
     -o StrictHostKeyChecking=accept-new \
-    -o UserKnownHostsFile="$STATE_DIR/known_hosts" \
+    -o UserKnownHostsFile="$keydir/known_hosts" \
     "root@${target}" 2>>"$STATE_DIR/unlock.log"; then
   clear_incident
   notify default "Menegroth server unlocked" "Root volume unlocked automatically at $(date '+%H:%M:%S') (origin verified); server is booting."

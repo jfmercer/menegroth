@@ -112,7 +112,7 @@ project can touch the `Menegroth` vault and nothing else.
 |---|---|---|
 | **HCP Terraform** | org + workspace `menegroth`, execution mode **Local**; a user/team API token | `TF_API_TOKEN` (GitHub) |
 | **Infisical** (EU, `eu.infisical.com`) | **two** projects (`menegroth` + a server project) + two universal-auth machine identities (below) | GitHub secrets + `/ci` |
-| **Tailscale** | an **API access token**; then — *after* phase 20 pushes the ACL — three **OAuth clients**, each `auth_keys` scope + one tag: `tag:ci`, `tag:server`, `tag:boot-unlock` | `TS_API_TOKEN` (script); `TS_OAUTH_*`, `TS_SERVER_OAUTH_SECRET` (→ `/ci`); `TS_BOOT_OAUTH_SECRET` (→ `/unlock`) |
+| **Tailscale** | an **API access token**; then — *after* phase 20 pushes the ACL — three **OAuth clients**, each `auth_keys` scope + one tag: `tag:ci`, `tag:server`, `tag:boot-unlock`; and a fourth with `devices:core` scope (write) and tags `tag:server` + `tag:boot-unlock`, so CI can remove the image test's and an image roll's old tailnet nodes (D13) | `TS_API_TOKEN` (script); `TS_OAUTH_*`, `TS_SERVER_OAUTH_SECRET`, `TS_DEVICES_OAUTH_*` (→ `/ci`); `TS_BOOT_OAUTH_SECRET` (→ `/unlock`) |
 | **Dead-man monitor** | a check at [healthchecks.io](https://healthchecks.io) (or any service that alerts when pings stop): period 15 min, grace ~45 min, alerting to your ntfy topic/phone | `HEARTBEAT_URL` (→ `/server`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
 | **Anthropic** | an API key for NemoClaw's inference, linked to a service account, in a workspace with a spend limit, expiration **Never** (you rotate it) | `ANTHROPIC_API_KEY` (→ `/server`, stored by hand) |
@@ -204,11 +204,13 @@ export RENOVATE_APP_ID=... RENOVATE_APP_PRIVATE_KEY="$(cat renovate-app.pem)"
 ./bootstrap.sh --dry-run              # preview — touches nothing
 ./bootstrap.sh 10-onepassword 20-tailscale   # vault items + tailnet ACL (defines the tags)
 
-# Now create the three Tailscale OAuth clients (admin console → Settings →
-# OAuth clients; auth_keys scope; one tag each) and export their secrets:
+# Now create the Tailscale OAuth clients (admin console → Settings →
+# OAuth clients): three with auth_keys scope and one tag each, and one with
+# devices:core scope (write) and tags tag:server + tag:boot-unlock:
 export TS_OAUTH_CLIENT_ID=... TS_OAUTH_SECRET=...   # tag:ci
 export TS_SERVER_OAUTH_SECRET=tskey-client-...       # tag:server
 export TS_BOOT_OAUTH_SECRET=tskey-client-...         # tag:boot-unlock
+export TS_DEVICES_OAUTH_CLIENT_ID=... TS_DEVICES_OAUTH_SECRET=tskey-client-...  # devices:core
 export HEARTBEAT_URL=https://hc-ping.com/...         # dead-man monitor
 
 ./bootstrap.sh 30-infisical 40-github   # store everything (idempotent; safe to re-run)
@@ -231,9 +233,11 @@ cd ../../macos && ./install.sh        # stores the token 0600 for the agent
 ```
 
 Fix any `FAIL` lines, then dispatch the **Packer FDE image** workflow
-(workflow_dispatch). It builds the LUKS2-root snapshot; Terraform selects the
-newest `fde=true` one on the next apply. A `WARN` that no `fde=true` snapshot
-exists yet is expected until this build runs.
+(workflow_dispatch) from master. It builds the LUKS2-root snapshot, tests it
+on a throwaway server (boot, verified unlock over the tailnet, kernel-update
+survival), and labels it `fde=true` only if the test passes; Terraform
+selects the newest `fde=true` snapshot on the next apply. A `WARN` that no
+`fde=true` snapshot exists yet is expected until this build runs.
 
 ### 4. Revoke the bootstrap service account
 
@@ -323,3 +327,4 @@ leaves the system deployable:
 10. Mac unlock agent — automated remote unlock over Tailscale
 11. Ops alignment: evening reboot window, stuck-at-boot alerting
 12. Mac-side secrets moved from Apple Keychain to 1Password
+13. Automated image test on a throwaway server; one-click image roll

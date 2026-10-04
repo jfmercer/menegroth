@@ -81,16 +81,19 @@ survives Mac reboots, so there is nothing to re-run afterwards.
   (`SERVER_IPV4` / `SERVER_IPV6_NET` in
   `~/.config/menegroth-server-unlock/config`, set by `install.sh` from the
   Terraform outputs). A relayed-only path is a **safe refusal** (alert after
-  3 min, keeps retrying). A direct path from any other address is treated as
-  **possible impersonation** (urgent alert). Neither ever sends the passphrase,
+  5 min, keeps retrying). A direct path from any other address is treated as
+  **possible impersonation** (urgent alert once it lasts 5 min: the automated
+  image test's throwaway server looks exactly like that until CI unlocks it,
+  within a minute or two). Neither ever sends the passphrase,
   and with no `SERVER_IPV4` the agent never unlocks. What to do in each case:
   `docs/troubleshooting.md`.
 - `menegroth-server-unlock --diagnose` prints what the agent sees and would
   decide, read-only (no 1Password, nothing sent).
 - Cooldown of 120 s between attempts so a slow pivot isn't hammered.
-- First connection pins the boot node's dropbear host key (`accept-new` into
-  `~/.local/state/menegroth-server-unlock/known_hosts`); after an image rebuild,
-  prune that file — an *unexpected* host-key failure deserves suspicion.
+- No dropbear host-key pinning: the host keys live on the unencrypted
+  `/boot`, so a pin proves nothing (D11). The origin check authenticates the
+  boot node, and the SSH session runs inside the WireGuard tunnel to it.
+  Image rolls therefore need nothing on the Mac.
 - If the Mac is asleep, the server just waits at the prompt; console
   fallback: `docs/troubleshooting.md` §8.
 - State/logs: `~/.local/state/menegroth-server-unlock/` (`agent.log`, `unlock.log`).

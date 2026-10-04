@@ -1,10 +1,21 @@
 ---
 name: Packer FDE image
 
+# A dispatch builds the image AND tests it on a throwaway server
+# (scripts/ci/image-test.sh): boot, verified unlock over the tailnet, system
+# checks, kernel reinstall + reboot. Only a passing build from master is
+# promoted to fde=true, the label Terraform rolls from (D13); every other
+# snapshot is deleted. Dispatching from a PR branch tests that branch's
+# image without promoting it.
 on:
-  workflow_dispatch: {} # building costs a temporary cpx22 — trigger deliberately
+  workflow_dispatch: {} # costs two temporary cpx22s (~45 min) — trigger deliberately
   pull_request:
-    paths: ["packer/**", ".github/workflows/packer.yml"]
+    paths:
+      - "packer/**"
+      - "scripts/ci/image-test*.sh"
+      - "scripts/ci/tailnet-devices.sh"
+      - "scripts/ci/hcloud.sh"
+      - ".github/workflows/packer.yml"
 
 permissions: {} # granted per-job below
 
@@ -43,12 +54,13 @@ jobs:
           .
 
   build:
-    name: Build FDE image
+    name: Build + test FDE image
     permissions:
       contents: read # clone the repo
     if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-26.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -81,6 +93,24 @@ jobs:
           secret-path: /unlock
           export-type: env
 
+      # Fail before paying for a build the test could not clean up after.
+      - name: Check the image test's credentials
+        working-directory: .
+        run: |
+          if [[ -z "${TS_DEVICES_OAUTH_CLIENT_ID:-}" || -z "${TS_DEVICES_OAUTH_SECRET:-}" ]]; then
+            echo "::error::/ci/TS_DEVICES_OAUTH_CLIENT_ID and TS_DEVICES_OAUTH_SECRET are missing. The image test needs them to remove its throwaway node from the tailnet: docs/runbooks/bootstrap-checklist.md, step 9b."
+            exit 1
+          fi
+          scripts/ci/tailnet-devices.sh list >/dev/null
+
+      # A dropbear key for this build only: baked into the image as a second
+      # authorized key, used to unlock the throwaway, gone when the job ends.
+      - name: Make the image test's unlock key
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/image-test"
+          ssh-keygen -q -t ed25519 -N '' -C "image-test-$GITHUB_RUN_ID" -f "$RUNNER_TEMP/image-test/unlock-key"
+          echo "PKR_VAR_test_unlock_ssh_pubkey=$(cat "$RUNNER_TEMP/image-test/unlock-key.pub")" >> "$GITHUB_ENV"
+
       - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
       - run: packer init .
       - name: packer build
@@ -89,4 +119,46 @@ jobs:
           PKR_VAR_boot_tailscale_oauth_secret: ${{ env.TS_BOOT_OAUTH_SECRET }}
           PKR_VAR_server_tailscale_oauth_secret: ${{ env.TS_SERVER_OAUTH_SECRET }}
           PKR_VAR_mac_unlock_ssh_pubkey: ${{ env.MAC_UNLOCK_SSH_PUBKEY }}
+          PKR_VAR_commit_sha: ${{ github.sha }}
         run: packer build .
+
+      - name: Read the snapshot ID
+        run: echo "SNAPSHOT_ID=$(jq -r '.builds[-1].artifact_id' packer-manifest.json)" >> "$GITHUB_ENV"
+
+      # tag:ci reaches tag:boot-unlock:22 (dropbear) and tag:server:22
+      # (Tailscale SSH as admin) — the tailnet ACL, docs/architecture.md D4.
+      - name: Join tailnet
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: menegroth-image-test
+          # Pinned (not `latest`); Renovate bumps it with the Packer
+          # initramfs pin in the grouped tailscale PR.
+          # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
+          version: "1.98.9"
+
+      - name: Test the image on a throwaway server
+        id: test
+        working-directory: .
+        env:
+          TEST_UNLOCK_KEY: ${{ runner.temp }}/image-test/unlock-key
+        run: scripts/ci/image-test.sh run
+
+      - name: Delete the throwaway server
+        if: always()
+        working-directory: .
+        run: scripts/ci/image-test.sh cleanup
+
+      - name: Promote the snapshot
+        id: promote
+        if: steps.test.outcome == 'success' && github.ref == 'refs/heads/master'
+        working-directory: .
+        run: scripts/ci/image-test.sh promote
+
+      # Untested, failed, or built from a branch: nothing may roll onto it.
+      - name: Discard the snapshot
+        if: always() && env.SNAPSHOT_ID != '' && steps.promote.outcome != 'success'
+        working-directory: .
+        run: scripts/ci/image-test.sh discard

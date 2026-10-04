@@ -11,6 +11,7 @@ set -euo pipefail
 : "${UBUNTU_KEYRING_VERSION:?}" "${UBUNTU_KEYRING_DEB_SHA256:?}"
 : "${BOOT_HOSTNAME:=menegroth-server-boot}" "${BOOT_TAG:=tag:boot-unlock}"
 : "${SERVER_HOSTNAME:=menegroth-server}" "${SERVER_TAG:=tag:server}"
+: "${TEST_UNLOCK_PUBKEY:=}"
 
 DISK=/dev/sda
 ESP_PART=${DISK}2
@@ -165,6 +166,12 @@ IFDOWN=none
 EOF
 printf 'no-port-forwarding,no-agent-forwarding,command="cryptroot-unlock" %s\n' \
   "$MAC_UNLOCK_PUBKEY" > "$TARGET/etc/dropbear/initramfs/authorized_keys"
+# The image test's per-build key (packer.yml): its private half never leaves
+# the CI job that built this image, so the line is inert afterwards.
+if [[ -n "$TEST_UNLOCK_PUBKEY" ]]; then
+  printf 'no-port-forwarding,no-agent-forwarding,command="cryptroot-unlock" %s\n' \
+    "$TEST_UNLOCK_PUBKEY" >> "$TARGET/etc/dropbear/initramfs/authorized_keys"
+fi
 chmod 600 "$TARGET/etc/dropbear/initramfs/authorized_keys"
 
 # Static tailscale binaries for the initramfs (Go static build), checked

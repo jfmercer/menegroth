@@ -4,8 +4,9 @@ Builds the Hetzner snapshot the server boots from: Ubuntu 26.04 with a
 **LUKS2-encrypted root**, an unencrypted `/boot`, an initramfs that joins
 the tailnet at the boot prompt so the Mac unlock agent (see `macos/`) can
 deliver the passphrase, and a first-boot unit that joins the real system to
-the tailnet so Ansible can reach a fresh server. See `docs/architecture.md`
-D2 and D10 for the design and threat model.
+the tailnet so Ansible can reach a fresh server. Every build is tested on
+a throwaway server before Terraform may use it. See `docs/architecture.md`
+D2, D10, and D13 for the design and threat model.
 
 ## How it works
 
@@ -19,8 +20,10 @@ D2 and D10 for the design and threat model.
    `dropbear-initramfs` + the tailscale package, embeds the static tailscale
    binaries plus the boot node credential via the hooks in
    `files/initramfs/`, and installs `tailscale-firstboot.service`.
-3. Packer snapshots the result with labels `fde=true, role=menegroth-server-base`;
-   Terraform selects the newest matching snapshot (Phase 9).
+3. Packer snapshots the result with labels `fde=candidate,
+   role=menegroth-server-base, commit=<sha>`. The workflow then tests it on
+   a throwaway server (below). Only a passing build from master is relabeled
+   `fde=true`, and Terraform selects the newest `fde=true` snapshot (D13).
 
 At boot, servers built from this image: get DHCP networking in initramfs
 (`ip=dhcp` on the kernel cmdline) → join the tailnet as an **ephemeral** node
@@ -50,13 +53,53 @@ All of these are produced by the bootstrap (README → "One-time bootstrap");
 - Mac unlock agent's SSH public key: `/unlock/MAC_UNLOCK_SSH_PUBKEY` (CI
   passes it as `PKR_VAR_mac_unlock_ssh_pubkey`; it is not in source).
 - The `ci` Infisical identity reads `/ci` + `/unlock` (build-time only).
+- For the image test (D13): the ACL rule `tag:ci` → `tag:boot-unlock:22`
+  (phase 20) and a `devices:core` OAuth client, tags `tag:server` +
+  `tag:boot-unlock`, at `/ci/TS_DEVICES_OAUTH_CLIENT_ID` + `_SECRET`.
 
-## Building
+## Building and testing
 
 CI: run the "Packer FDE image" workflow via **workflow_dispatch** (PRs only
-validate — a build spins up a paid cpx22 for ~10–15 minutes).
+validate). One job builds the image on a temporary cpx22 (~15 minutes), then
+tests it on a second, throwaway cpx22 (~25 minutes), then deletes both:
 
-Locally:
+1. A fresh dropbear key is generated for this build and baked into the
+   image next to the Mac's key; the job keeps the private half and discards
+   it at the end.
+2. `scripts/ci/image-test.sh` creates the throwaway from the snapshot, with
+   production's cloud-init and a firewall that admits only inbound UDP (so
+   the runner gets a direct tailscale path to it).
+3. The runner, on the tailnet as `tag:ci`, waits for the throwaway's boot
+   node, **proves its origin** (`tailscale ping --until-direct` must answer
+   from the throwaway's own public address, the Mac agent's D11 check), and
+   only then sends the passphrase to the forced `cryptroot-unlock`.
+4. It checks that the boot node leaves the tailnet at pivot and the real
+   system joins as `menegroth-server` (`tag:server`), then runs
+   `scripts/ci/image-test-system.sh` on it: no failed units, root on LUKS2
+   `root_crypt`, the first-boot credential deleted, `tailscale0` unmanaged by
+   networkd and absent from netplan, and the **Mac's** unlock key in both
+   dropbear's `authorized_keys` and the initramfs.
+5. Kernel-update survival: `scripts/ci/image-test-kernel.sh` reinstalls the
+   running kernel (its postinst hooks rebuild the initramfs) and checks the
+   rebuilt initramfs; then the throwaway reboots, is unlocked again the same
+   way, and passes step 4's checks again.
+6. Cleanup always runs: the throwaway, its firewall, and its tailnet node
+   are deleted (`scripts/ci/tailnet-devices.sh`). A passing build from
+   master is promoted to `fde=true`; any other snapshot is deleted.
+
+Dispatch the workflow on a PR branch to test that branch's image before
+merging; it is never promoted. The Mac agent sees the throwaway's boot node
+answering from the wrong address and refuses it (it alerts only if that
+lasts 5 minutes; the test unlocks within one or two), so there is nothing to
+pause. Not covered: unlocking at the Hetzner web console, which there is no
+API for (stock Ubuntu cryptsetup; `docs/troubleshooting.md` §8).
+
+The test's one-time prerequisites are listed above. Failures name the step. The
+job deletes its throwaway either way, so to investigate a boot node that
+never joins, reproduce by hand (below) and read
+`/run/initramfs/tailscale-up.log` after a console unlock.
+
+Locally (no test, no promotion):
 
 ```bash
 export HCLOUD_TOKEN=… PKR_VAR_root_luks_passphrase=… \
@@ -66,38 +109,19 @@ export HCLOUD_TOKEN=… PKR_VAR_root_luks_passphrase=… \
 cd packer && packer init . && packer build .
 ```
 
-(CI is the normal path — `CLAUDE.md`: Packer builds run via workflow_dispatch.)
+A local build stays `fde=candidate`, so Terraform ignores it. CI is the
+normal path (`CLAUDE.md`: Packer builds run via workflow_dispatch).
 
-## Verifying a new image (throwaway server, before Phase 9 rollout)
+## Testing by hand (fallback)
 
-0. **Pause the Mac unlock agent** for the test, because it will rightly treat
-   the throwaway's boot node (a different IP) as possible impersonation:
-   `launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.menegroth-server.unlock.plist`
-   (re-enable afterwards with `launchctl bootstrap` and the same arguments).
-1. Create a server from the snapshot in the Hetzner console (give it a
-   throwaway name; it will still join as `menegroth-server` — delete that
-   node from the tailnet afterwards if production is already running).
-2. Watch the tailnet: a `menegroth-server-boot` node appears within ~1
-   minute (proves DNS + CA roots + OAuth exchange work in the initramfs).
-   If none appears, unlock at the console (step 4) and read
-   `/run/initramfs/tailscale-up.log` and `/run/initramfs/tailscaled-boot.log`
-   on the server.
-3. **Prove the boot node's origin before sending the passphrase:**
-   `tailscale ping --until-direct <boot-node-tailnet-ip>` must end with
-   `via <throwaway's public IPv4>:<port>`, matching the IP the Hetzner console
-   shows for the throwaway. This is the check the agent automates
-   (`docs/troubleshooting.md`). Only then `ssh root@<boot-node-tailnet-ip>` →
-   forced `cryptroot-unlock` prompts → server boots; the boot node disappears, and
-   a `tag:server` node joins (first-boot unit); on the server,
-   `/etc/tailscale-firstboot/authkey` is gone, `networkctl` lists
-   `tailscale0` as `unmanaged`, and `/etc/netplan/50-cloud-init.yaml` has no
-   `tailscale0` entry.
-4. Reboot and unlock via the Hetzner web console instead, following
-   `docs/troubleshooting.md` §8.
-5. `apt install --reinstall linux-image-generic` (forces initramfs rebuild),
-   reboot, confirm the tailnet join still works — this is the kernel-update
-   survival test.
-6. Delete the throwaway server; re-enable the Mac agent (step 0).
+If the automated test itself is broken, the same steps by hand: create a
+server from the candidate snapshot in the Hetzner console; wait for the
+`menegroth-server-boot` node; run `tailscale ping --until-direct
+<boot-node-ip>` and confirm it ends `via <throwaway's public IPv4>:<port>`;
+only then `ssh root@<boot-node-ip>` and type the passphrase; check what step
+4 above checks; reinstall the kernel, reboot, unlock again; delete the
+server and its `menegroth-server-N` tailnet node. Promote by setting the
+snapshot's `fde` label to `true` (Hetzner console → Snapshots → Labels).
 
 ## Notes
 
@@ -108,5 +132,5 @@ cd packer && packer init . && packer build .
   are ephemeral and tag-restricted.
 - Bump `tailscale_version` deliberately via PR (Renovate groups it); the
   initramfs copy is independent of the running system's tailscale package.
-- After the image changes (new credential, new tailscale version), rebuild
-  and re-verify steps 1–5 before rolling to production.
+- After the image changes (new credential, new tailscale version), dispatch
+  the workflow from master; it rebuilds and re-tests before anything can roll.
