@@ -36,6 +36,9 @@ uv run pre-commit run -a
 # Mac unlock agent: unit tests against stubbed tailscale/op/ssh/curl (bash 3.2 compatible)
 macos/tests/agent-test.sh
 
+# Teardown: what it deletes and what it leaves alone, against a stubbed Hetzner/Tailscale API
+scripts/ci/tests/teardown-test.sh
+
 # Server checks, read-only, exactly as the Verify workflow runs them (from a tailnet member)
 ssh admin@menegroth-server "sudo env $(uv run python scripts/verify/expected.py) bash -s" < scripts/verify/server.sh
 
@@ -43,19 +46,20 @@ ssh admin@menegroth-server "sudo env $(uv run python scripts/verify/expected.py)
 cd scripts/bootstrap && shellcheck -x ./*.sh && ./bootstrap.sh --dry-run
 ```
 
-Never run `terraform apply` or `packer build` locally. Apply happens on merge to master or a manual Terraform dispatch from master; Packer builds are `workflow_dispatch` only (each build boots two paid temporary servers: the build and the image test).
+Never run `terraform apply`, `terraform destroy`, or `packer build` locally. Apply happens on merge to master or a manual Terraform dispatch from master; Packer builds are `workflow_dispatch` only (each build boots two paid temporary servers: the build and the image test).
 
 The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architecture.md` D6): idempotent phase scripts (`10-onepassword` → `20-tailscale` → `30-infisical` → `40-github`) driven by `bootstrap.sh`, plus `preflight.sh` which validates the whole tenant before the first Packer build. The two public keys (`admin_ssh_public_key`, `mac_unlock_ssh_pubkey`) live in Infisical, **not** source — CI injects them as `TF_VAR_`/`PKR_VAR_`, so a local `terraform plan` needs `TF_VAR_admin_ssh_public_key` exported (`validate` does not). The only remaining source placeholder is `REPLACE_WITH_SERVER_PROJECT_ID` (the `infisical_server_project_id`) in `ansible/group_vars/all.yml`; the `validation` blocks on the two key variables (format `^ssh-`) must stay intact.
 
 ## CI model
 
-Eight workflows in `.github/workflows/` (all but renovate.yml path-filtered or scheduled):
+Nine workflows in `.github/workflows/` (all but renovate.yml path-filtered or scheduled; teardown.yml is dispatch-only):
 
 - **terraform.yml** — fmt/validate/tflint + plan-as-PR-comment on PRs; auto-apply on master push. Manual dispatch (master only) also applies; its `replace_server` checkbox is the image roll (`-replace=hcloud_server.menegroth`), which also hands the `menegroth-server` tailnet name to the new server and dispatches Ansible (`scripts/ci/image-roll.sh`). State lives in HCP Terraform (state-only backend, execution mode "Local").
 - **ansible.yml** — lint + syntax check on PRs; on master push the runner joins the tailnet as an ephemeral `tag:ci` node and runs `site.yml` over Tailscale SSH (the server has zero public inbound ports).
 - **packer.yml** — fmt/validate on PRs; manual dispatch builds the image **and tests it on a throwaway server** (`scripts/ci/image-test.sh`: verified unlock over the tailnet, system checks, kernel reinstall + reboot), then deletes the throwaway. Snapshots are born `fde=candidate`; only a passing master build is promoted to `fde=true` (Terraform's selector), everything else is deleted (D13). Dispatching on a PR branch tests that branch's image without promoting it.
-- **shellcheck.yml** — shellchecks every tracked shell script plus the *rendered* Ansible templates (`scripts/ci/shellcheck-all.sh`); rendering also catches Jinja syntax errors, which ansible-lint/`--syntax-check` never see. Beware `${#…}` in `.j2` files: `{#` opens a Jinja comment. Also runs the Mac agent's unit tests (`macos/tests/agent-test.sh`); change the agent's behaviour → change its tests.
+- **shellcheck.yml** — shellchecks every tracked shell script plus the *rendered* Ansible templates (`scripts/ci/shellcheck-all.sh`); rendering also catches Jinja syntax errors, which ansible-lint/`--syntax-check` never see. Beware `${#…}` in `.j2` files: `{#` opens a Jinja comment. Also runs the Mac agent's unit tests (`macos/tests/agent-test.sh`) and the teardown's (`scripts/ci/tests/teardown-test.sh`); change either script's behaviour → change its tests.
 - **verify.yml** — daily (and on PRs touching `scripts/verify/`): cloud + internet view (`scripts/verify/outside.sh`, incl. a full TCP scan from off the tailnet), server checks over Tailscale SSH (`scripts/verify/server.sh`, expected values from the Ansible config via `expected.py`), Ansible drift (`--check`), Terraform drift; Mondays add one agent turn; dispatch inputs for a test ntfy alert and a reboot drill; a failed scheduled run alerts via ntfy (D14). When you add a role/setting, add its check here — and mark read-only probe tasks `check_mode: false` so `--check` can evaluate what depends on them.
+- **teardown.yml** — dispatch-only, from master, behind the typed confirmation `destroy menegroth-server`: disables the terraform/ansible/packer/verify/renovate workflows, `terraform destroy`, then `scripts/ci/teardown.sh` deletes what Terraform doesn't manage (backups, FDE snapshots, image-test/Packer leftovers, the server's tailnet nodes) and proves nothing is left (D15, `docs/runbooks/teardown.md`). Its idea of "menegroth's" is deliberately narrow (name, label, origin; tag *and* hostname on the tailnet) so shared projects keep their other machines — a new resource the project creates must match it, or the teardown misses it.
 - **renovate.yml** — weekly self-hosted Renovate (see below).
 - **zizmor.yml** / **codeql.yml** — security analysis of the workflows themselves (SARIF → Security tab); zizmor also runs as a pre-commit hook. Baseline: clean at `--persona=pedantic` — keep it that way when touching workflows.
 
@@ -96,5 +100,5 @@ Full rationale and decision log: `docs/architecture.md`. The layers compose in t
 - **No operator-personal configuration in source.** The repo must work for any operator: personal settings (dotfiles repo/commit, HCP org) live in GitHub repository variables; the admin login shell is the one deliberate exception, a single `admin_shell` setting in `ansible/group_vars/all.yml` or the gitignored `bootstrap.env`, and personal packages belong in the operator's own dotfiles, never in an Ansible role.
 
 - History is phase-per-commit (Phase 0–12), each leaving the system deployable; keep commits self-contained in that spirit.
-- `docs/architecture.md` is a decision log (D1–D12) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
+- `docs/architecture.md` is a decision log (D1–D15) — record architectural changes there (with the *alternative considered*), and keep the README's build-phases list and bootstrap steps in sync.
 - The Infisical secret layout is documented in `docs/architecture.md` D3/D8 — `/ci` and `/unlock` in project `menegroth` (env `prod`), `/server` in a separate server project. New secrets go in the least-privileged path; bootstrap routes `/server` writes to `INFISICAL_SERVER_PROJECT_ID` automatically (`scripts/bootstrap/lib.sh`).

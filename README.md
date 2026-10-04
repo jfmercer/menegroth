@@ -82,8 +82,8 @@ packer/               FDE image pipeline (LUKS2 root + tailnet-unlock initramfs)
 ansible/              Provisioning: inventory, site.yml, roles/
 macos/                Mac unlock agent (launchd + 1Password + ntfy) + its unit tests
 scripts/bootstrap/    One-time bootstrap automation + preflight validator
-.github/workflows/    terraform, ansible, packer, verify, shellcheck, zizmor, codeql, renovate
-scripts/ci/           CI helpers (template rendering, shellcheck, image test, image roll)
+.github/workflows/    terraform, ansible, packer, verify, teardown, shellcheck, zizmor, codeql, renovate
+scripts/ci/           CI helpers (template rendering, shellcheck, image test, image roll, teardown)
 scripts/verify/       The daily Verify workflow's checks
 docs/                 architecture.md, troubleshooting.md, verification.md, runbooks/
 ```
@@ -330,3 +330,4 @@ leaves the system deployable:
 12. Mac-side secrets moved from Apple Keychain to 1Password
 13. Automated image test on a throwaway server; one-click image roll
 14. Automated verification: daily Verify workflow, Mac agent unit tests
+15. One-dispatch teardown of all infrastructure

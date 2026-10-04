@@ -630,6 +630,51 @@ rejected: a GitHub runner off the tailnet is already outside. *Not
 automatable:* typing into the Hetzner console, rescue mode, and the dead-man
 monitor's own paging.
 
+### D15 — Teardown is one dispatch, and it proves itself
+
+*(2026-10-04.)* Deleting the infrastructure by hand meant a Hetzner console
+session (the volume and Primary IPs are delete-protected), the snapshots
+Terraform doesn't own, a stale tailnet node, and remembering that a merge or
+the daily Verify run would otherwise poke at a server that no longer exists.
+
+**Decision:** a **Teardown** workflow (`teardown.yml`), dispatch-only, from
+master, behind a typed confirmation (`destroy menegroth-server`). It runs in
+two jobs. The first holds only `actions: write` and no secrets: it checks the
+confirmation, disables the Terraform, Ansible, Packer, Verify, and Renovate
+workflows, and refuses while a Packer build is running, because a build
+creates servers and a snapshot that would outlive the teardown. The second
+job shares the Terraform apply's concurrency group. It checks its
+credentials before deleting anything, runs `terraform destroy` (the hcloud
+provider lifts delete protection itself), then `scripts/ci/teardown.sh
+sweep` deletes what Terraform doesn't manage: the server's backups, the FDE
+snapshots, image-test and Packer leftovers, and the server's tailnet nodes.
+It ends with `teardown.sh check`, which fails while anything of Menegroth's
+remains and lists everything else the Hetzner project holds. Every step
+skips what an earlier run already deleted, so a failed run is simply
+dispatched again. `docs/runbooks/teardown.md` is the operator's page.
+
+**Trust:** what counts as Menegroth's is matched narrowly: by name
+(`menegroth-…`, Packer's `packer-fde-build`), by label (image test, FDE
+snapshots), by origin (an image made from a `menegroth-` server), and on the
+tailnet by tag *and* hostname. A Hetzner project or tailnet shared with other
+machines keeps them; `scripts/ci/tests/teardown-test.sh` proves both sides
+against a stubbed API. Accounts and credentials (Infisical, Tailscale OAuth
+clients, 1Password, HCP Terraform, GitHub secrets) stay. CI's
+least-privilege credentials can't delete them, and granting it that power
+for a once-only job would weaken every other run.
+
+*Alternatives considered:* a `destroy` checkbox on the Terraform workflow —
+rejected: a misclick away from the image roll, and Terraform covers only
+part of the teardown; disable delete protection with an extra apply before
+destroying — unnecessary, the provider does it, and an apply after a partial
+teardown would recreate what was already deleted; delete everything in the
+Hetzner project — rejected: nothing says the project is Menegroth's alone;
+delete every `tag:server` node — rejected: the tag is generic, and another
+machine may carry it; a GitHub Environment with a required reviewer —
+rejected for a one-operator repo: the reviewer is the same person who typed
+the confirmation. *Not automatable:* the dead-man monitor (pause it first;
+it pages when the pings stop) and the Mac agent's uninstall.
+
 ## Provisioning flow
 
 1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:
