@@ -4,7 +4,8 @@ name: Shell
 # Shellcheck every tracked shell script (bootstrap, Mac agent, Packer image
 # + initramfs hooks) and the RENDERED Ansible script templates. Rendering also
 # catches Jinja syntax errors, which ansible-lint and --syntax-check never see.
-# Also unit-tests the Mac unlock agent's decisions (macos/tests).
+# Also unit-tests the Mac unlock agent's decisions (macos/tests) and what the
+# teardown deletes (scripts/ci/tests).
 
 on:
   pull_request:
@@ -66,3 +67,16 @@ jobs:
       # tailscale, op, ssh, and curl.
       - name: Unlock agent decisions
         run: macos/tests/agent-test.sh
+
+  teardown:
+    name: Teardown tests
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clone the repo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # A stub curl plays the Hetzner and Tailscale APIs; jq ships on the runner.
+      - name: What the teardown deletes, and what it leaves alone
+        run: scripts/ci/tests/teardown-test.sh
