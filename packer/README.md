@@ -89,7 +89,9 @@ cd packer && packer init . && packer build .
    (`docs/troubleshooting.md`). Only then `ssh root@<boot-node-tailnet-ip>` →
    forced `cryptroot-unlock` prompts → server boots; the boot node disappears, and
    a `tag:server` node joins (first-boot unit); on the server,
-   `/etc/tailscale-firstboot/authkey` is gone.
+   `/etc/tailscale-firstboot/authkey` is gone, `networkctl` lists
+   `tailscale0` as `unmanaged`, and `/etc/netplan/50-cloud-init.yaml` has no
+   `tailscale0` entry.
 4. Reboot and unlock via the Hetzner web console instead, following
    `docs/troubleshooting.md` §8.
 5. `apt install --reinstall linux-image-generic` (forces initramfs rebuild),
