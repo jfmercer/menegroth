@@ -87,4 +87,35 @@ else
 fi
 rm -rf "$unpacked"
 
+# The throwaway is deleted when the job ends, so explain a failure while it
+# still exists. The repo (and so this log) is public: only network state and
+# unit logs from the throwaway, nothing with credentials in it.
+if ((fails > 0)); then
+  section() { printf '\n---- %s\n' "$1"; }
+  section "failed units"
+  systemctl --failed --no-legend --plain
+  section "links and addresses"
+  ip -br link
+  ip -br addr
+  networkctl list --no-legend
+  section "networkd's view of eth0"
+  networkctl status eth0 --no-pager 2>&1 | head -40
+  section "generated network units (/run/systemd/network, wait-online drop-ins)"
+  ls -l /run/systemd/network/ 2>&1
+  for f in /run/systemd/system/systemd-networkd-wait-online.service.d/*.conf; do
+    [[ -e "$f" ]] && { echo "# $f"; cat "$f"; }
+  done
+  section "netplan config"
+  for f in /etc/netplan/*.yaml /run/netplan/*.yaml; do
+    [[ -e "$f" ]] && { echo "# $f"; cat "$f"; }
+  done
+  section "this boot: networkd, wait-online, udev, cloud-init (monotonic seconds)"
+  journalctl -b --no-pager -o short-monotonic \
+    -u systemd-networkd -u systemd-networkd-wait-online -u systemd-udevd \
+    -u cloud-init-local -u cloud-init-network -u cloud-init-main -u cloud-config -u cloud-final \
+    -u tailscaled 2>&1 | tail -n 150
+  section "cloud-init warnings and errors"
+  grep -E 'WARNING|ERROR|Traceback|[Rr]enam' /var/log/cloud-init.log 2>/dev/null | tail -n 60
+fi
+
 ((fails == 0))
