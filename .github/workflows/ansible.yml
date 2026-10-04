@@ -13,8 +13,11 @@ on:
 
 permissions: {} # granted per-job below
 
+# PR lint and provisioning must not share a group: GitHub cancels a pending
+# run when a newer one joins its group, so a PR push could cancel a queued
+# provision. Provisioning is serialized on its job instead.
 concurrency:
-  group: ansible
+  group: ansible-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 defaults:
@@ -47,6 +50,9 @@ jobs:
 
   provision:
     name: Provision over tailnet
+    concurrency:
+      group: ansible-provision # one run against the server at a time
+      cancel-in-progress: false
     if: >-
       github.ref == 'refs/heads/master'
       && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
