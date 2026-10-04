@@ -112,8 +112,10 @@ online_peers() {
 # find_node <tag> <timeout-seconds> — the tailnet IP of the online <tag> peer
 # that answers DIRECTLY from the throwaway's own address. Other nodes with
 # the same tag (production) answer from elsewhere and are skipped.
+# Logs each candidate's state whenever it changes, so a timeout shows what
+# the runner saw.
 find_node() {
-  local deadline=$((SECONDS + $2)) ip ep
+  local deadline=$((SECONDS + $2)) ip ep seen="" state
   while ((SECONDS < deadline)); do
     while read -r ip; do
       [[ -n "$ip" ]] || continue
@@ -123,10 +125,29 @@ find_node() {
         printf '%s' "$ip"
         return 0
       fi
+      state="$ip:${ep:-relay}"
+      if [[ " $seen " != *" $state "* ]]; then
+        seen+=" $state"
+        if [[ -n "$ep" ]]; then
+          echo "    $1 node $ip answers directly from $ep: not the throwaway, skipped" >&2
+        else
+          echo "    $1 node $ip is online but has no direct path yet (relayed or no reply); retrying" >&2
+        fi
+      fi
     done < <(online_peers "$1")
     sleep 10
   done
   return 1
+}
+
+# show_tailnet <tag> — what the control plane knows about <tag> devices, for
+# a timeout: did the node join at all, and from where?
+show_tailnet() {
+  echo "  The control plane's view of $1 devices:" >&2
+  "$HERE/tailnet-devices.sh" list 2>/dev/null | jq -r --arg t "$1" '.[]? | select((.tags // []) | index($t))
+    | "    \(.name) connected=\(.connectedToControl) lastSeen=\(.lastSeen) endpoints=\(.clientConnectivity.endpoints // [] | join(","))"' >&2 ||
+    echo "    (could not list devices)" >&2
+  echo "  The runner's view: $(tailscale status --json | jq -c --arg t "$1" '[.Peer // {} | .[] | select((.Tags // []) | index($t)) | {HostName, Online, CurAddr, Relay}]')" >&2
 }
 
 # wait_gone <tailnet-ip> <timeout-seconds> — until no online peer has the IP.
@@ -168,6 +189,7 @@ boot_and_unlock() { # boot_and_unlock <label> -> prints the server's tailnet IP
   log "$1: waiting for the throwaway's boot node (tag:boot-unlock)"
   boot_ip="$(find_node "$BOOT_TAG" 420)" || {
     echo "No $BOOT_TAG node answered directly from $TEST_IPV4 within 7 minutes." >&2
+    show_tailnet "$BOOT_TAG"
     echo "  If 'menegroth-server-boot' shows in the admin console, the tailnet ACL lacks" >&2
     echo "  {src: tag:ci, dst: tag:boot-unlock:22} (docs/architecture.md D4)." >&2
     echo "  Otherwise the initramfs never joined: its logs are on the throwaway at" >&2
@@ -180,7 +202,10 @@ boot_and_unlock() { # boot_and_unlock <label> -> prints the server's tailnet IP
   wait_gone "$boot_ip" 180 || die "$1: the boot node stayed online after the unlock (it should log out at pivot)"
   pass "the boot node left the tailnet at pivot"
   log "$1: waiting for the real system (tag:server)"
-  server_ip="$(find_node "$SERVER_TAG" 420)" || die "$1: no $SERVER_TAG node from the throwaway within 7 minutes"
+  server_ip="$(find_node "$SERVER_TAG" 420)" || {
+    show_tailnet "$SERVER_TAG"
+    die "$1: no $SERVER_TAG node from the throwaway within 7 minutes"
+  }
   printf '%s' "$server_ip"
 }
 
