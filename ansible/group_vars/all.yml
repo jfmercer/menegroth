@@ -18,3 +18,10 @@ infisical_server_project_id: 20e41cd4-2cbe-48e0-84be-2b2210268c93
 # Mac-awake hours: the FDE root needs the Mac unlock agent (macos/) to
 # finish a reboot, so reboots happen in the evening, not at night.
 unattended_reboot_time: "19:00"
+
+# NemoClaw's inference credential: the Infisical /server secret holding the
+# provider's API key, and the env var the provider reads it from (see the
+# nemoclaw role defaults). The secret must exist before this reaches master,
+# or the next Ansible run fails fetching it.
+nemoclaw_provider_key_secret: ANTHROPIC_API_KEY
+nemoclaw_provider_key_env: ANTHROPIC_API_KEY
