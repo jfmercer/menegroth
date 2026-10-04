@@ -115,6 +115,7 @@ project can touch the `Menegroth` vault and nothing else.
 | **Tailscale** | an **API access token**; then — *after* phase 20 pushes the ACL — three **OAuth clients**, each `auth_keys` scope + one tag: `tag:ci`, `tag:server`, `tag:boot-unlock` | `TS_API_TOKEN` (script); `TS_OAUTH_*`, `TS_SERVER_OAUTH_SECRET` (→ `/ci`); `TS_BOOT_OAUTH_SECRET` (→ `/unlock`) |
 | **Dead-man monitor** | a check at [healthchecks.io](https://healthchecks.io) (or any service that alerts when pings stop): period 15 min, grace ~45 min, alerting to your ntfy topic/phone | `HEARTBEAT_URL` (→ `/server`) |
 | **Hetzner Cloud** | a **Read & Write** API token (project → Security → API Tokens) | `HCLOUD_TOKEN` (→ `/ci`) |
+| **Anthropic** | an API key for NemoClaw's inference, linked to a service account, in a workspace with a spend limit, expiration **Never** (you rotate it) | `ANTHROPIC_API_KEY` (→ `/server`, stored by hand) |
 | **1Password** | vault `Menegroth` + two vault-scoped service accounts (below) | `MENEGROTH_OP_BOOTSTRAP_TOKEN` (script); `MENEGROTH_OP_UNLOCK_TOKEN` (→ `macos/install.sh`) |
 | **GitHub** | a **Renovate GitHub App** (Contents + Pull requests + **Workflows** + Issues + Commit statuses: write; Dependabot alerts: read) installed on this repo | `RENOVATE_APP_ID` / `RENOVATE_APP_PRIVATE_KEY` (→ `/ci`) |
 
