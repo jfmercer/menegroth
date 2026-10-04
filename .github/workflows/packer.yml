@@ -19,8 +19,12 @@ on:
 
 permissions: {} # granted per-job below
 
+# PR validation and dispatched builds must not share a group: GitHub cancels
+# a pending run when a newer one in its group queues, so a push to any PR
+# branch could cancel a queued build. One build at a time is enforced on the
+# build job itself.
 concurrency:
-  group: packer
+  group: packer-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 defaults:
@@ -61,6 +65,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-26.04
     timeout-minutes: 120
+    concurrency:
+      group: packer-build # one paid build + throwaway at a time
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
