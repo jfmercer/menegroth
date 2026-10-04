@@ -24,8 +24,8 @@ require_env TS_API_TOKEN "admin console -> Settings -> Keys -> generate API acce
 # Mirrors docs/architecture.md#tailscale-acls. Replaces the whole policy file,
 # so we confirm first. dropbear (tag:boot-unlock:22) is an L3 rule, not an ssh
 # rule, because the initramfs runs ordinary SSH, not Tailscale SSH. tag:ci
-# reaches it for the automated image test (D13), which unlocks a throwaway
-# server built from a new image.
+# reaches it for the automated image test (D13), which checks that a
+# throwaway server's dropbear answers over the tailnet.
 read -r -d '' ACL_POLICY <<JSON || true
 {
   "tagOwners": {

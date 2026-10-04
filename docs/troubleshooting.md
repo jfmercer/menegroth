@@ -230,5 +230,6 @@ D2.)
 7. **Fix the cause** (sections above) before the next scheduled reboot.
 
 Never fall back to SSH-ing into the boot node and typing the passphrase
-there. Even on a throwaway test server, first prove the node's origin, as
-`scripts/ci/image-test.sh` does (`packer/README.md`).
+there. On a throwaway test server, unlock over SSH to its own public
+address, as `scripts/ci/image-test.sh` does (`packer/README.md`), never to
+a tailnet node whose origin you haven't proven.

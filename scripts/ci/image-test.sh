@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Image test: boot a throwaway server from a freshly built FDE snapshot,
-# unlock it the way the Mac agent does, and prove the image works before
-# Terraform may roll production onto it (docs/architecture.md D13). Runs in
-# packer.yml right after the build, on a runner that has joined the tailnet
-# as tag:ci.
+# unlock it, and prove the image works before Terraform may roll production
+# onto it (docs/architecture.md D13). Runs in packer.yml right after the
+# build, on a runner that has joined the tailnet as tag:ci.
 #
 # usage: image-test.sh run       create the throwaway and test it
 #        image-test.sh cleanup   delete everything `run` created (idempotent)
@@ -11,9 +10,10 @@
 #        image-test.sh discard   delete the snapshot
 #
 # What `run` proves, in boot order:
-#   1. the initramfs joins the tailnet as a tag:boot-unlock node;
-#   2. that node answers over a DIRECT path from the throwaway's own public
-#      address (D11): only then is the passphrase sent, over dropbear;
+#   1. the initramfs joins the tailnet as a tag:boot-unlock node from the
+#      throwaway's address, and dropbear answers over the tailnet (the Mac's
+#      unlock path);
+#   2. dropbear accepts the passphrase and the root volume opens;
 #   3. the boot node logs out at pivot, and the first-boot unit joins the
 #      real system as menegroth-server (tag:server) and deletes its credential;
 #   4. the booted system is healthy: no failed units, root on LUKS2, network
@@ -24,14 +24,19 @@
 # Not covered: unlocking at the Hetzner web console (stock Ubuntu cryptsetup;
 # there is no API to type into the console).
 #
-# The production passphrase is sent only to a node whose origin is verified,
-# exactly as the Mac agent does. The Mac agent also sees the throwaway's boot
-# node, answering from the wrong address; it refuses, and alerts only if that
-# lasts longer than its grace period (VERIFY_GRACE_SECONDS).
+# Where the production passphrase goes: over SSH to the throwaway's public
+# IPv4, the address Hetzner just assigned it, never to a tailnet node. That
+# trusts what the Mac's D11 check trusts (whoever answers at the server's
+# own address is the server) without needing a direct tailscale path, which
+# GitHub runners don't reliably get. The throwaway's firewall admits SSH from
+# this runner's address only. The Mac agent also sees the throwaway's boot
+# node, from the wrong address; it refuses, and alerts only if that lasts
+# longer than its grace period (VERIFY_GRACE_SECONDS).
 set -euo pipefail
 
 : "${HCLOUD_TOKEN:?}"
 STATE_FILE="${IMAGE_TEST_STATE:-${RUNNER_TEMP:-/tmp}/image-test.state}"
+WORK="${STATE_FILE%/*}"
 RUN="${GITHUB_RUN_ID:-local}"
 NAME="menegroth-image-test-$RUN"
 PURPOSE=menegroth-image-test        # label on everything this script creates
@@ -40,7 +45,6 @@ LOCATION=nbg1
 ADMIN_USER="admin"
 SERVER_HOSTNAME=menegroth-server
 BOOT_TAG=tag:boot-unlock
-SERVER_TAG=tag:server
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 
@@ -72,147 +76,115 @@ wait_action() {
   return 1
 }
 
-# ---- Origin check: the Mac agent's D11 logic, from the runner -------------
-# in_origin <ip> — is this address the throwaway's IPv4 or in its IPv6 /64?
-in_origin() {
-  python3 - "$1" "$TEST_IPV4" "$TEST_IPV6_NET" <<'PY'
-import ipaddress
-import sys
-
-host, v4, v6 = sys.argv[1:4]
-try:
-    addr = ipaddress.ip_address(host)
-    ok = addr == ipaddress.ip_address(v4) if addr.version == 4 else addr in ipaddress.ip_network(v6, strict=False)
-except ValueError:
-    ok = False
-sys.exit(0 if ok else 1)
-PY
+# ---- Reaching the throwaway ---------------------------------------------------
+# banner <host> — the SSH server's identification line ("SSH-2.0-dropbear_…"
+# at the unlock prompt, "SSH-2.0-OpenSSH_…" once booted), or nothing.
+banner() {
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  timeout 8 bash -c 'exec 3<>"/dev/tcp/$1/22" && head -n1 <&3' _ "$1" 2>/dev/null | tr -d '\r'
 }
 
-# direct_endpoint <tailnet-ip> — the address a direct pong came from, or
-# nothing for a relayed/missing reply (relay = unverifiable, never trusted).
-direct_endpoint() {
-  local out ep
-  out="$(tailscale ping --c 10 --timeout 3s --until-direct "$1" 2>&1)" || true
-  ep="$(sed -n 's/^pong from .* via \(.*\) in .*$/\1/p' <<<"$out" | tail -n1)"
-  case "$ep" in
-    "" | DERP\(* | peer-relay\(* | disco | TSMP | ICMP | peerapi) return 0 ;;
-  esac
-  ep="${ep%:*}"
-  ep="${ep#[}"
-  printf '%s' "${ep%]}"
-}
-
-# online_peers <tag> — tailnet IPs of online peers carrying the tag.
-online_peers() {
-  tailscale status --json | jq -r --arg t "$1" \
-    '.Peer // {} | .[] | select(.Online and ((.Tags // []) | index($t))) | .TailscaleIPs[0]'
-}
-
-# find_node <tag> <timeout-seconds> — the tailnet IP of the online <tag> peer
-# that answers DIRECTLY from the throwaway's own address. Other nodes with
-# the same tag (production) answer from elsewhere and are skipped.
-# Logs each candidate's state whenever it changes, so a timeout shows what
-# the runner saw.
-find_node() {
-  local deadline=$((SECONDS + $2)) ip ep seen="" state
+# wait_banner <host> <dropbear|OpenSSH|down> <timeout-seconds>
+wait_banner() {
+  local deadline=$((SECONDS + $3)) got
   while ((SECONDS < deadline)); do
-    while read -r ip; do
-      [[ -n "$ip" ]] || continue
-      ep="$(direct_endpoint "$ip")"
-      if [[ -n "$ep" ]] && in_origin "$ep"; then
-        pass "$1 node $ip answers directly from the throwaway ($ep)"
-        printf '%s' "$ip"
-        return 0
-      fi
-      state="$ip:${ep:-relay}"
-      if [[ " $seen " != *" $state "* ]]; then
-        seen+=" $state"
-        if [[ -n "$ep" ]]; then
-          echo "    $1 node $ip answers directly from $ep: not the throwaway, skipped" >&2
-        else
-          echo "    $1 node $ip is online but has no direct path yet (relayed or no reply); retrying" >&2
-        fi
-      fi
-    done < <(online_peers "$1")
-    sleep 10
-  done
-  return 1
-}
-
-# show_tailnet <tag> — what the control plane knows about <tag> devices, for
-# a timeout: did the node join at all, and from where?
-show_tailnet() {
-  echo "  The control plane's view of $1 devices:" >&2
-  "$HERE/tailnet-devices.sh" list 2>/dev/null | jq -r --arg t "$1" '.[]? | select((.tags // []) | index($t))
-    | "    \(.name) connected=\(.connectedToControl) lastSeen=\(.lastSeen) endpoints=\(.clientConnectivity.endpoints // [] | join(","))"' >&2 ||
-    echo "    (could not list devices)" >&2
-  echo "  The runner's view: $(tailscale status --json | jq -c --arg t "$1" '[.Peer // {} | .[] | select((.Tags // []) | index($t)) | {HostName, Online, CurAddr, Relay}]')" >&2
-}
-
-# wait_gone <tailnet-ip> <timeout-seconds> — until no online peer has the IP.
-wait_gone() {
-  local deadline=$((SECONDS + $2))
-  while ((SECONDS < deadline)); do
-    tailscale status --json | jq -e --arg ip "$1" \
-      '[.Peer // {} | .[] | select(.Online and ((.TailscaleIPs // []) | index($ip)))] | length == 0' \
-      >/dev/null && return 0
+    got="$(banner "$1")"
+    case "$2" in
+      down) [[ "$got" != *OpenSSH* ]] && return 0 ;;
+      *) [[ "$got" == *"$2"* ]] && return 0 ;;
+    esac
     sleep 5
   done
   return 1
 }
 
-# unlock <boot-node-ip> — send the passphrase to the forced cryptroot-unlock,
-# without a trailing newline (macos/menegroth-server-unlock.sh explains why).
+# boot_node — the control plane's record of the throwaway's boot node: a
+# connected tag:boot-unlock device reporting an endpoint at the throwaway's
+# address. Only used to check the tailnet join, never to decide where the
+# passphrase goes.
+boot_node() {
+  "$HERE/tailnet-devices.sh" list 2>/dev/null | jq -c --arg t "$BOOT_TAG" --arg v4 "$TEST_IPV4" \
+    '[.[] | select(((.tags // []) | index($t)) and .connectedToControl
+       and (((.clientConnectivity.endpoints // []) | map(sub(":[0-9]+$"; ""))) | index($v4)))] | first // empty'
+}
+
+# ssh_opts — no host-key pinning: the destination is the address Hetzner
+# assigned, which is the trust anchor (see the header).
+SSH_OPTS=(-o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15
+  -o ServerAliveInterval=10 -o ServerAliveCountMax=3
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+
+# unlock — send the passphrase to dropbear's forced cryptroot-unlock, without
+# a trailing newline (macos/menegroth-server-unlock.sh explains why).
 unlock() {
-  printf '%s' "$ROOT_LUKS_KEY" | ssh \
-    -i "$TEST_UNLOCK_KEY" \
-    -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 \
-    -o StrictHostKeyChecking=accept-new \
-    -o UserKnownHostsFile="${STATE_FILE%/*}/image-test.known_hosts" \
-    "root@$1" >&2
+  printf '%s' "$ROOT_LUKS_KEY" | ssh "${SSH_OPTS[@]}" -i "$TEST_UNLOCK_KEY" "root@$TEST_IPV4" >&2
 }
 
-# on_server <tailnet-ip> <bash-args...> — run a script from stdin as root over
-# Tailscale SSH (tag:ci may log in as admin; the ACL vouches for the host).
+# on_server <bash-args...> — run a script from stdin as root on the booted
+# throwaway, as admin with the bootstrap key its cloud-init authorized.
 on_server() {
-  local ip="$1"
-  shift
-  ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
-    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-    "$ADMIN_USER@$ip" sudo bash -s -- "$@"
+  ssh "${SSH_OPTS[@]}" -i "$ADMIN_KEY" "$ADMIN_USER@$TEST_IPV4" sudo bash -s -- "$@"
 }
 
-# Unlock one boot of the throwaway, then wait for its real system.
-boot_and_unlock() { # boot_and_unlock <label> -> prints the server's tailnet IP
-  local boot_ip server_ip
-  log "$1: waiting for the throwaway's boot node (tag:boot-unlock)"
-  boot_ip="$(find_node "$BOOT_TAG" 420)" || {
-    echo "No $BOOT_TAG node answered directly from $TEST_IPV4 within 7 minutes." >&2
-    show_tailnet "$BOOT_TAG"
-    echo "  If 'menegroth-server-boot' shows in the admin console, the tailnet ACL lacks" >&2
-    echo "  {src: tag:ci, dst: tag:boot-unlock:22} (docs/architecture.md D4)." >&2
-    echo "  Otherwise the initramfs never joined: its logs are on the throwaway at" >&2
-    echo "  /run/initramfs/tailscale-up.log (console only, it is locked)." >&2
-    die "$1: boot node not found"
-  }
-  log "$1: origin verified; sending the passphrase over dropbear"
-  unlock "$boot_ip" || die "$1: the unlock SSH session failed"
+# Unlock one boot of the throwaway and wait until its real system is up.
+boot_and_unlock() { # boot_and_unlock <label>
+  local node ts_ip deadline
+  log "$1: waiting for dropbear at $TEST_IPV4"
+  wait_banner "$TEST_IPV4" dropbear 420 ||
+    die "$1: dropbear never answered on $TEST_IPV4:22 within 7 minutes (did the server boot? is $RUNNER_IPV4 still this runner's address?)"
+  pass "dropbear is up at the unlock prompt"
+
+  # The Mac's path: the boot node joins the tailnet and dropbear answers
+  # over it. A relayed path is fine here; nothing secret travels over it.
+  deadline=$((SECONDS + 240))
+  until node="$(boot_node)" && [[ -n "$node" ]]; do
+    ((SECONDS < deadline)) || {
+      echo "  tag:boot-unlock devices the control plane knows:" >&2
+      "$HERE/tailnet-devices.sh" list 2>/dev/null | jq -r --arg t "$BOOT_TAG" '.[] | select((.tags // []) | index($t))
+        | "    \(.name) connected=\(.connectedToControl) endpoints=\(.clientConnectivity.endpoints // [] | join(","))"' >&2 || true
+      die "$1: no boot node joined the tailnet from $TEST_IPV4 within 4 minutes (initramfs logs: /run/initramfs/tailscale-up.log)"
+    }
+    sleep 10
+  done
+  ts_ip="$(jq -r '.addresses[0]' <<<"$node")"
+  pass "the boot node joined the tailnet ($(jq -r .name <<<"$node"), $ts_ip)"
+  deadline=$((SECONDS + 120))
+  until [[ "$(banner "$ts_ip")" == *dropbear* ]]; do
+    ((SECONDS < deadline)) || die "$1: dropbear does not answer over the tailnet at $ts_ip:22 (the ACL needs tag:ci -> tag:boot-unlock:22, D4)"
+    sleep 5
+  done
+  pass "dropbear answers over the tailnet, the Mac agent's path"
+
+  log "$1: sending the passphrase to $TEST_IPV4 (the throwaway's assigned address)"
+  unlock || die "$1: the unlock SSH session failed"
   pass "cryptroot-unlock accepted the passphrase"
-  wait_gone "$boot_ip" 180 || die "$1: the boot node stayed online after the unlock (it should log out at pivot)"
+
+  deadline=$((SECONDS + 180))
+  while node="$(boot_node)" && [[ -n "$node" ]]; do
+    ((SECONDS < deadline)) || die "$1: the boot node stayed on the tailnet after the unlock (it should log out at pivot)"
+    sleep 5
+  done
   pass "the boot node left the tailnet at pivot"
-  log "$1: waiting for the real system (tag:server)"
-  server_ip="$(find_node "$SERVER_TAG" 420)" || {
-    show_tailnet "$SERVER_TAG"
-    die "$1: no $SERVER_TAG node from the throwaway within 7 minutes"
-  }
-  printf '%s' "$server_ip"
+
+  log "$1: waiting for the real system"
+  wait_banner "$TEST_IPV4" OpenSSH 420 || die "$1: the real system's sshd never answered within 7 minutes"
+  deadline=$((SECONDS + 300))
+  until on_server <<<'true' 2>/dev/null; do # cloud-init creates the admin user
+    ((SECONDS < deadline)) || die "$1: cannot log in as $ADMIN_USER on $TEST_IPV4"
+    sleep 10
+  done
+  pass "the real system is up and reachable"
 }
 
 cmd_run() {
-  : "${SNAPSHOT_ID:?}" "${ROOT_LUKS_KEY:?}" "${TEST_UNLOCK_KEY:?}"
+  : "${SNAPSHOT_ID:?}" "${ROOT_LUKS_KEY:?}" "${TEST_UNLOCK_KEY:?}" "${SSH_PRIVATE_KEY:?}"
   : "${MAC_UNLOCK_SSH_PUBKEY:?}" "${ADMIN_SSH_PUBLIC_KEY:?}"
   : >"$STATE_FILE"
+
+  # The bootstrap admin key (/ci/SSH_PRIVATE_KEY): its public half is what
+  # production's cloud-init authorizes, so the throwaway accepts it too.
+  ADMIN_KEY="$WORK/image-test-admin-key"
+  (umask 077 && printf '%s\n' "$SSH_PRIVATE_KEY" >"$ADMIN_KEY")
 
   log "Sweeping image-test leftovers older than 3 hours"
   local cutoff
@@ -231,7 +203,7 @@ cmd_run() {
   # (Hetzner keys are unique by fingerprint), else a temporary one, e.g. on
   # the very first build, before Terraform has run. Without any key Hetzner
   # would email a root password for the server.
-  local key_id fp fw_id user_data body server
+  local key_id fp fw_id user_data body server netcheck
   fp="$(ssh-keygen -l -E md5 -f - <<<"$ADMIN_SSH_PUBLIC_KEY" | awk '{print $2}')"
   fp="${fp#MD5:}"
   key_id="$(hc GET "/ssh_keys?fingerprint=$fp" | jq -r '.ssh_keys[0].id // empty')"
@@ -242,14 +214,19 @@ cmd_run() {
     save SSH_KEY_ID "$key_id"
   fi
 
-  # Inbound UDP only: lets tailscale form direct paths to the throwaway, so
-  # its origin can be verified from a runner behind NAT. Nothing else in.
+  # SSH from this runner only. Its public address, as tailscale's STUN
+  # probes see it.
+  netcheck="$(tailscale netcheck --format=json 2>/dev/null)"
+  RUNNER_IPV4="$(jq -r '.GlobalV4 // empty' <<<"$netcheck")"
+  RUNNER_IPV4="${RUNNER_IPV4%:*}"
+  [[ -n "$RUNNER_IPV4" ]] || die "could not determine this runner's public IPv4 (tailscale netcheck)"
+  log "Runner $RUNNER_IPV4 (NAT mapping varies by destination: $(jq -r .MappingVariesByDestIP <<<"$netcheck"))"
+
   log "Creating the throwaway's firewall and server ($SERVER_TYPE, $LOCATION)"
-  fw_id="$(hc POST /firewalls "$(jq -nc --arg n "$NAME" --arg p "$PURPOSE" --arg r "$RUN" '{
+  fw_id="$(hc POST /firewalls "$(jq -nc --arg n "$NAME" --arg p "$PURPOSE" --arg r "$RUN" --arg src "$RUNNER_IPV4/32" '{
     name: $n, labels: {purpose: $p, run: $r},
-    rules: [{direction: "in", protocol: "udp", port: "1-65535",
-             source_ips: ["0.0.0.0/0", "::/0"],
-             description: "tailscale direct paths to the image-test server"}]}')" | jq -r .firewall.id)"
+    rules: [{direction: "in", protocol: "tcp", port: "22", source_ips: [$src],
+             description: "SSH from the image-test runner only"}]}')" | jq -r .firewall.id)"
   save FIREWALL_ID "$fw_id"
 
   # The server gets production's cloud-init, rendered as Terraform would.
@@ -279,32 +256,32 @@ cmd_run() {
   save TEST_IPV6_NET "$TEST_IPV6_NET"
   log "Throwaway $SERVER_ID: $TEST_IPV4, $TEST_IPV6_NET"
 
-  local mac_blob ip
+  local mac_blob
   mac_blob="$(awk '{print $2}' <<<"$MAC_UNLOCK_SSH_PUBKEY")"
 
   # ---- First boot -----------------------------------------------------------
-  ip="$(boot_and_unlock "first boot")"
+  boot_and_unlock "first boot"
   # Recorded first, so cleanup can remove this exact node whatever happens next.
-  SERVER_NODE_ID="$(on_server "$ip" <<<"tailscale status --json | python3 -c 'import json, sys; print(json.load(sys.stdin)[\"Self\"][\"ID\"])'")"
+  SERVER_NODE_ID="$(on_server <<<"timeout 300 systemctl is-system-running --wait >/dev/null; tailscale status --json | python3 -c 'import json, sys; print(json.load(sys.stdin)[\"Self\"][\"ID\"])'")"
   save SERVER_NODE_ID "$SERVER_NODE_ID"
   log "first boot: checking the booted system"
-  on_server "$ip" "$mac_blob" "$SERVER_HOSTNAME" <"$HERE/image-test-system.sh" >&2 || die "first boot: system checks failed"
+  on_server "$mac_blob" "$SERVER_HOSTNAME" <"$HERE/image-test-system.sh" >&2 || die "first boot: system checks failed"
 
   # ---- Kernel-update survival ------------------------------------------------
   log "kernel update: reinstalling the kernel to rebuild the initramfs"
-  on_server "$ip" <"$HERE/image-test-kernel.sh" >&2 || die "kernel update: the initramfs rebuild failed"
+  on_server <"$HERE/image-test-kernel.sh" >&2 || die "kernel update: the initramfs rebuild failed"
   log "kernel update: rebooting"
-  on_server "$ip" <<<'systemctl --no-block reboot' >&2 || die "kernel update: could not reboot the throwaway"
-  wait_gone "$ip" 180 || die "kernel update: the server did not go down for the reboot"
-  ip="$(boot_and_unlock "after the kernel update")"
+  on_server <<<'systemctl --no-block reboot' >&2 || die "kernel update: could not reboot the throwaway"
+  wait_banner "$TEST_IPV4" down 180 || die "kernel update: the server did not go down for the reboot"
+  boot_and_unlock "after the kernel update"
   log "after the kernel update: checking the booted system"
-  on_server "$ip" "$mac_blob" "$SERVER_HOSTNAME" <"$HERE/image-test-system.sh" >&2 || die "after the kernel update: system checks failed"
+  on_server "$mac_blob" "$SERVER_HOSTNAME" <"$HERE/image-test-system.sh" >&2 || die "after the kernel update: system checks failed"
 
   log "Image test passed"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo "### Image test passed"
-      echo "Snapshot \`$SNAPSHOT_ID\` booted, unlocked over the tailnet with a verified origin,"
+      echo "Snapshot \`$SNAPSHOT_ID\` booted, joined the tailnet at the unlock prompt, unlocked,"
       echo "joined as \`$SERVER_HOSTNAME\`, and survived a kernel reinstall + reboot."
     } >>"$GITHUB_STEP_SUMMARY"
   fi
@@ -313,6 +290,7 @@ cmd_run() {
 # Best effort throughout: one failed deletion must never stop the others.
 cmd_cleanup() {
   load
+  rm -f "$WORK/image-test-admin-key"
   [[ -n "${SERVER_ID:-}" ]] || { log "Nothing to clean up"; return 0; }
 
   # The throwaway's tailnet nodes. Delete by the node ID the server itself

@@ -234,7 +234,7 @@ cd ../../macos && ./install.sh        # stores the token 0600 for the agent
 
 Fix any `FAIL` lines, then dispatch the **Packer FDE image** workflow
 (workflow_dispatch) from master. It builds the LUKS2-root snapshot, tests it
-on a throwaway server (boot, verified unlock over the tailnet, kernel-update
+on a throwaway server (boot, the tailnet unlock path, unlock, kernel-update
 survival), and labels it `fde=true` only if the test passes; Terraform
 selects the newest `fde=true` snapshot on the next apply. A `WARN` that no
 `fde=true` snapshot exists yet is expected until this build runs.

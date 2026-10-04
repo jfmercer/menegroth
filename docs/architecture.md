@@ -234,8 +234,8 @@ Tailnet policy needed (configured in the Tailscale admin console):
     // over the tailnet, not Tailscale SSH — hence an acls port-22 rule, not an
     // ssh block entry.
     { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:boot-unlock:22"] },
-    // CI unlocks the image test's throwaway server (D13). CI already holds the
-    // passphrase (/unlock, for image builds), so this grants no new secret.
+    // The image test checks that a throwaway's dropbear answers over the
+    // tailnet (D13). Nothing secret travels this way.
     { "action": "accept", "src": ["tag:ci"], "dst": ["tag:boot-unlock:22"] }
   ],
   "ssh": [
@@ -544,9 +544,10 @@ operator didn't have. Image fixes waited unmerged.
 
 **Decision:** the Packer workflow tests every image it builds, in the same
 job (`scripts/ci/image-test.sh`). It boots a throwaway cpx22 from the new
-snapshot and waits for its boot node. It verifies the node's origin with the
-Mac agent's D11 check, run from the runner (a direct pong from the
-throwaway's own address), then unlocks it over dropbear. Next it checks the
+snapshot and waits for dropbear. It checks the Mac's path, meaning the boot
+node joined the tailnet from the throwaway's address and dropbear answers
+over the tailnet, then unlocks it over SSH to the throwaway's public
+address. Next it checks the
 booted system: no failed units, root on LUKS2, the first-boot join, the
 network state, and the Mac's key inside the initramfs. Then it reinstalls the
 kernel, reboots, and unlocks again: the kernel-update survival test. Last, it
@@ -560,13 +561,20 @@ node once Hetzner has deleted the server, gives the new node the name
 workflow (`scripts/ci/image-roll.sh`).
 
 **Trust:** CI already holds the root passphrase (`/unlock`, for image
-builds), so the new ACL rule (`tag:ci` → `tag:boot-unlock:22`) gives it reach
-to dropbear, not a new secret, and it sends the passphrase only after the
-same origin check as the Mac. It unlocks with a per-build key: generated in
-the job, baked into that image as a second dropbear key, discarded when the
-job ends. The extra `authorized_keys` line in production images is inert,
-because no copy of its private half survives. The throwaway's firewall
-admits inbound UDP only, so the runner can reach it over a direct path. The
+builds). It sends it only to the throwaway's public IPv4, the address Hetzner
+assigned that server, never to a tailnet node. That trusts what the Mac's
+D11 check trusts (whoever answers at the server's own address is the
+server); both fail only to an attacker on the path inside Hetzner. D11's
+tailscale form of the check needs a direct path, and GitHub runners don't
+reliably get one: in the second test run, the runner stayed relayed for
+seven minutes. The throwaway's firewall admits SSH from that runner's
+address only. The ACL rule `tag:ci` → `tag:boot-unlock:22` lets CI confirm
+dropbear answers over the tailnet; no secret travels that way. CI unlocks
+with a per-build key: generated in the job, baked into that image as a
+second dropbear key, discarded when the job ends. The extra
+`authorized_keys` line in production images is inert, because no copy of
+its private half survives. The system checks log in with the bootstrap admin
+key (`/ci/SSH_PRIVATE_KEY`), which production's cloud-init authorizes. The
 Mac agent still never sends the passphrase to a mismatched origin; its
 impersonation alert now waits out the same 5-minute grace as a refusal,
 which the test's boot nodes (gone within a minute or two) never reach. A

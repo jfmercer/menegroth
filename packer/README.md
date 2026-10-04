@@ -67,15 +67,20 @@ tests it on a second, throwaway cpx22 (~25 minutes), then deletes both:
    image next to the Mac's key; the job keeps the private half and discards
    it at the end.
 2. `scripts/ci/image-test.sh` creates the throwaway from the snapshot, with
-   production's cloud-init and a firewall that admits only inbound UDP (so
-   the runner gets a direct tailscale path to it).
-3. The runner, on the tailnet as `tag:ci`, waits for the throwaway's boot
-   node, **proves its origin** (`tailscale ping --until-direct` must answer
-   from the throwaway's own public address, the Mac agent's D11 check), and
-   only then sends the passphrase to the forced `cryptroot-unlock`.
-4. It checks that the boot node leaves the tailnet at pivot and the real
-   system joins as `menegroth-server` (`tag:server`), then runs
-   `scripts/ci/image-test-system.sh` on it: no failed units, root on LUKS2
+   production's cloud-init and a firewall that admits SSH from the runner's
+   address only.
+3. When dropbear answers, the runner checks the Mac's path: the boot node
+   joined the tailnet from the throwaway's address, and dropbear answers
+   over the tailnet (the runner is on it as `tag:ci`). It then sends the
+   passphrase to the forced `cryptroot-unlock` over SSH to the throwaway's
+   **public IPv4**, the address Hetzner assigned it. That trusts what the
+   Mac agent's D11 check trusts, without needing a direct tailscale path,
+   which GitHub runners don't reliably get.
+4. It checks that the boot node leaves the tailnet at pivot, logs in to the
+   real system with the bootstrap admin key (`/ci/SSH_PRIVATE_KEY`, which
+   production's cloud-init authorizes), and runs
+   `scripts/ci/image-test-system.sh` on it: it joined the tailnet as
+   `menegroth-server` (`tag:server`), no failed units, root on LUKS2
    `root_crypt`, the first-boot credential deleted, `tailscale0` unmanaged by
    networkd and absent from netplan, and the **Mac's** unlock key in both
    dropbear's `authorized_keys` and the initramfs.
@@ -89,9 +94,10 @@ tests it on a second, throwaway cpx22 (~25 minutes), then deletes both:
 
 Dispatch the workflow on a PR branch to test that branch's image before
 merging; it is never promoted. The Mac agent sees the throwaway's boot node
-answering from the wrong address and refuses it (it alerts only if that
-lasts 5 minutes; the test unlocks within one or two), so there is nothing to
-pause. Not covered: unlocking at the Hetzner web console, which there is no
+from the wrong address and refuses it (it alerts only if that lasts 5
+minutes; the test unlocks within one or two), so there is nothing to pause.
+When a system check fails, the test prints network diagnostics from the
+throwaway before deleting it. Not covered: unlocking at the Hetzner web console, which there is no
 API for (stock Ubuntu cryptsetup; `docs/troubleshooting.md` §8).
 
 The test's one-time prerequisites are listed above. Failures name the step. The

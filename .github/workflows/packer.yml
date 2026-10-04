@@ -2,8 +2,8 @@
 name: Packer FDE image
 
 # A dispatch builds the image AND tests it on a throwaway server
-# (scripts/ci/image-test.sh): boot, verified unlock over the tailnet, system
-# checks, kernel reinstall + reboot. Only a passing build from master is
+# (scripts/ci/image-test.sh): boot, the tailnet unlock path, unlock at the
+# throwaway's own address, system checks, kernel reinstall + reboot. Only a passing build from master is
 # promoted to fde=true, the label Terraform rolls from (D13); every other
 # snapshot is deleted. Dispatching from a PR branch tests that branch's
 # image without promoting it.
@@ -125,8 +125,8 @@ jobs:
       - name: Read the snapshot ID
         run: echo "SNAPSHOT_ID=$(jq -r '.builds[-1].artifact_id' packer-manifest.json)" >> "$GITHUB_ENV"
 
-      # tag:ci reaches tag:boot-unlock:22 (dropbear) and tag:server:22
-      # (Tailscale SSH as admin) — the tailnet ACL, docs/architecture.md D4.
+      # The test checks that the throwaway's dropbear answers over the tailnet
+      # (ACL: tag:ci -> tag:boot-unlock:22, docs/architecture.md D4).
       - name: Join tailnet
         uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
         with:
