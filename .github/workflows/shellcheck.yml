@@ -4,8 +4,9 @@ name: Shell
 # Shellcheck every tracked shell script (bootstrap, Mac agent, Packer image
 # + initramfs hooks) and the RENDERED Ansible script templates. Rendering also
 # catches Jinja syntax errors, which ansible-lint and --syntax-check never see.
-# Also unit-tests the Mac unlock agent's decisions (macos/tests) and what the
-# teardown deletes (scripts/ci/tests).
+# Also unit-tests the Mac unlock agent's decisions (macos/tests) and the
+# teardown (scripts/ci/tests): what it deletes, and its terraform destroy run
+# with the real provider against a mock Hetzner API.
 
 on:
   pull_request:
@@ -17,6 +18,8 @@ on:
       - "ansible/group_vars/**"
       - ".shellcheckrc"
       - ".github/workflows/shellcheck.yml"
+      - ".github/workflows/teardown.yml"
+      - "terraform/**" # a provider bump can change how destroy behaves
   push:
     branches: [master]
     paths:
@@ -27,6 +30,8 @@ on:
       - "ansible/group_vars/**"
       - ".shellcheckrc"
       - ".github/workflows/shellcheck.yml"
+      - ".github/workflows/teardown.yml"
+      - "terraform/**" # a provider bump can change how destroy behaves
 
 permissions: {} # granted per-job below
 
@@ -80,3 +85,14 @@ jobs:
       # A stub curl plays the Hetzner and Tailscale APIs; jq ships on the runner.
       - name: What the teardown deletes, and what it leaves alone
         run: scripts/ci/tests/teardown-test.sh
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      # uv provides PyYAML, to read the steps out of teardown.yml.
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
+      - name: terraform destroy against delete-protected resources
+        run: scripts/ci/tests/teardown-destroy-test.sh

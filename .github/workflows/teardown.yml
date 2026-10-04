@@ -3,11 +3,11 @@ name: Teardown
 
 # Deletes all of the project's infrastructure (docs/runbooks/teardown.md,
 # D15). First it switches off the workflows that would deploy, build, or
-# probe the server. Then `terraform destroy` deletes the server, the /data
-# volume, the Primary IPs, the firewall, and the SSH key, and
-# scripts/ci/teardown.sh deletes the rest: the server's backups, the FDE
-# snapshots, image-test and Packer leftovers, and the server's tailnet nodes.
-# It ends by proving nothing of menegroth's is left. Irreversible: no copy
+# probe the server. Then it lifts delete protection, `terraform destroy`
+# deletes the server, the /data volume, the Primary IPs, the firewall, and
+# the SSH key, and scripts/ci/teardown.sh deletes the rest: the server's
+# backups, the FDE snapshots, image-test and Packer leftovers, and the
+# server's tailnet nodes. It ends by proving nothing of menegroth's is left. Irreversible: no copy
 # of /data survives. Accounts and credentials stay (the runbook covers them).
 on:
   workflow_dispatch:
@@ -133,7 +133,13 @@ jobs:
         working-directory: terraform
         run: terraform init -input=false
 
-      # Terraform lifts the volume's and Primary IPs' delete protection itself.
+      # hcloud deletes without lifting delete protection, and Hetzner refuses
+      # (423 protected) for the /data volume and the Primary IPs: the first
+      # production run failed that way. scripts/ci/tests/teardown-destroy-test.sh
+      # runs these steps against a mock that enforces it.
+      - name: Lift delete protection
+        run: scripts/ci/teardown.sh unprotect
+
       # An empty state means an earlier run got past this step; skip it, since
       # destroy still reads the FDE-image data source and the sweep has since
       # deleted every image.

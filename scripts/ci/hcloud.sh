@@ -4,14 +4,15 @@
 #
 # hc <METHOD> <path> [json-body] — prints the response body. On an HTTP error
 # it prints the status and body to stderr and returns 1. The token travels in
-# a curl config on stdin, never on argv.
+# a curl config on stdin, never on argv. HCLOUD_ENDPOINT overrides the API
+# URL, as it does for the hcloud provider and CLI (the teardown's tests).
 #
 # hc_list <collection> [query] — every item of a paginated collection as one
 # JSON array, e.g. `hc_list servers` or `hc_list images type=snapshot`.
 
 hc() {
   : "${HCLOUD_TOKEN:?}"
-  local args=(-sS -X "$1" -w '\n%{http_code}' -K- "https://api.hetzner.cloud/v1$2")
+  local args=(-sS -X "$1" -w '\n%{http_code}' -K- "${HCLOUD_ENDPOINT:-https://api.hetzner.cloud/v1}$2")
   [[ $# -ge 3 ]] && args+=(-H 'Content-Type: application/json' --data-binary "$3")
   local out code
   out="$(printf 'header = "Authorization: Bearer %s"\n' "$HCLOUD_TOKEN" | curl "${args[@]}")" || return 1

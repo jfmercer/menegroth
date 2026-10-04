@@ -644,14 +644,23 @@ confirmation, disables the Terraform, Ansible, Packer, Verify, and Renovate
 workflows, and refuses while a Packer build is running, because a build
 creates servers and a snapshot that would outlive the teardown. The second
 job shares the Terraform apply's concurrency group. It checks its
-credentials before deleting anything, runs `terraform destroy` (the hcloud
-provider lifts delete protection itself), then `scripts/ci/teardown.sh
-sweep` deletes what Terraform doesn't manage: the server's backups, the FDE
+credentials before deleting anything, lifts delete protection from
+Menegroth's resources (`teardown.sh unprotect`), runs `terraform destroy`,
+then `scripts/ci/teardown.sh sweep` deletes what Terraform doesn't manage: the server's backups, the FDE
 snapshots, image-test and Packer leftovers, and the server's tailnet nodes.
 It ends with `teardown.sh check`, which fails while anything of Menegroth's
 remains and lists everything else the Hetzner project holds. Every step
 skips what an earlier run already deleted, so a failed run is simply
 dispatched again. `docs/runbooks/teardown.md` is the operator's page.
+
+*Correction (2026-10-04):* the first version trusted the hcloud provider's
+documentation, which says Terraform lifts delete protection itself. It
+doesn't (provider 1.69.0): the first production run deleted the server,
+then Hetzner refused the `/data` volume and both Primary IPs with
+`423 protected`. Hence the `unprotect` step, and
+`scripts/ci/tests/teardown-destroy-test.sh`, which runs the workflow's
+destroy steps with the real provider and the real config against a mock
+Hetzner API that enforces protection. It fails on the first version.
 
 **Trust:** what counts as Menegroth's is matched narrowly: by name
 (`menegroth-…`, Packer's `packer-fde-build`), by label (image test, FDE
@@ -665,9 +674,9 @@ for a once-only job would weaken every other run.
 
 *Alternatives considered:* a `destroy` checkbox on the Terraform workflow —
 rejected: a misclick away from the image roll, and Terraform covers only
-part of the teardown; disable delete protection with an extra apply before
-destroying — unnecessary, the provider does it, and an apply after a partial
-teardown would recreate what was already deleted; delete everything in the
+part of the teardown; disable delete protection with an extra apply
+(`delete_protection = var.…`) before destroying — rejected: an apply after
+a partial teardown would recreate what was already deleted; delete everything in the
 Hetzner project — rejected: nothing says the project is Menegroth's alone;
 delete every `tag:server` node — rejected: the tag is generic, and another
 machine may carry it; a GitHub Environment with a required reviewer —

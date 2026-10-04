@@ -7,6 +7,10 @@
 #
 # usage: teardown.sh preflight   before anything is deleted: fail now if a
 #                                credential a later step needs is missing
+#        teardown.sh unprotect   before terraform destroy: lift delete
+#                                protection from menegroth's resources. The
+#                                hcloud provider deletes without lifting it,
+#                                and Hetzner refuses (423 protected).
 #        teardown.sh sweep       delete menegroth's Hetzner resources (FDE
 #                                snapshots, backups, image-test and Packer
 #                                leftovers) and tailnet nodes
@@ -71,15 +75,21 @@ wait_action() {
   return 1
 }
 
+# lift_protection <collection> <id> — and wait for Hetzner to finish.
+lift_protection() {
+  local out body='{"delete": false}'
+  [[ "$1" == servers ]] && body='{"delete": false, "rebuild": false}' # the API wants both alike
+  out="$(hc POST "/$1/$2/actions/change_protection" "$body")" || return 1
+  wait_action "$(jq -r .action.id <<<"$out")"
+}
+
 # remove <collection> <id> <label> <protected> — lift delete protection if
 # set, delete, and wait for Hetzner to finish. Retries for a minute: a
 # firewall stays attached for a moment after its server is deleted.
 remove() {
-  local out action body='{"delete": false}'
-  [[ "$1" == servers ]] && body='{"delete": false, "rebuild": false}'
+  local out action
   if [[ "$4" == true ]]; then
-    out="$(hc POST "/$1/$2/actions/change_protection" "$body")" || return 1
-    wait_action "$(jq -r .action.id <<<"$out")" || return 1
+    lift_protection "$1" "$2" || return 1
   fi
   for _ in $(seq 1 12); do
     if out="$(hc DELETE "/$1/$2")"; then
@@ -98,6 +108,17 @@ case "${1:-}" in
     hc GET "/servers?per_page=1" >/dev/null
     "$HERE/tailnet-devices.sh" list >/dev/null
     echo "teardown: the Hetzner token and the devices OAuth client work" >&2
+    ;;
+
+  unprotect)
+    for c in "${COLLECTIONS[@]}"; do
+      all="$(items "$c")"
+      while IFS=$'\t' read -r id label _; do
+        lift_protection "$c" "$id" ||
+          { echo "::error::teardown: could not lift delete protection from $c $label ($id)"; exit 1; }
+        echo "teardown: lifted delete protection from $c $label ($id)" >&2
+      done < <(rows "$all" "($HC_OWNED) and .protection.delete == true")
+    done
     ;;
 
   sweep)
@@ -134,7 +155,7 @@ case "${1:-}" in
       done < <(rows "$all" "($HC_OWNED) | not")
     done
     ((failed)) || echo "PASS  Hetzner: nothing of menegroth's is left"
-    ((others)) || echo "INFO  Hetzner: the project is empty"
+    ((failed || others)) || echo "INFO  Hetzner: the project is empty"
 
     left="$("$HERE/tailnet-devices.sh" list | jq -r "[.[] | select($TS_OWNED) | .name] | join(\", \")")"
     if [[ -n "$left" ]]; then
@@ -147,7 +168,7 @@ case "${1:-}" in
     ;;
 
   *)
-    echo "usage: teardown.sh preflight | sweep | check" >&2
+    echo "usage: teardown.sh preflight | unprotect | sweep | check" >&2
     exit 2
     ;;
 esac
