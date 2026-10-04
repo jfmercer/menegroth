@@ -109,13 +109,23 @@ if ((fails > 0)); then
   for f in /etc/netplan/*.yaml /run/netplan/*.yaml; do
     [[ -e "$f" ]] && { echo "# $f"; cat "$f"; }
   done
-  section "this boot: networkd, wait-online, udev, cloud-init (monotonic seconds)"
-  journalctl -b --no-pager -o short-monotonic \
-    -u systemd-networkd -u systemd-networkd-wait-online -u systemd-udevd \
-    -u cloud-init-local -u cloud-init-network -u cloud-init-main -u cloud-config -u cloud-final \
-    -u tailscaled 2>&1 | tail -n 150
-  section "cloud-init warnings and errors"
-  grep -E 'WARNING|ERROR|Traceback|[Rr]enam' /var/log/cloud-init.log 2>/dev/null | tail -n 60
+  # From the start of the boot (monotonic seconds), not the tail: what
+  # happened first is what explains a stuck link.
+  section "this boot: networkd and wait-online, from the start"
+  journalctl -b --no-pager -o short-monotonic -u systemd-networkd -u systemd-networkd-wait-online 2>&1 | head -n 80
+  section "this boot: kernel link and address events"
+  journalctl -b -k --no-pager -o short-monotonic 2>&1 |
+    grep -iE 'eth0|enp|renamed|ADDRCONF|ipv6|virtio_net' | head -n 40
+  section "this boot: cloud-init, without the ci-info tables"
+  journalctl -b --no-pager -o short-monotonic -u cloud-init-local -u cloud-init-network \
+    -u cloud-init-main -u cloud-config 2>&1 | grep -v 'ci-info' | head -n 60
+  section "cloud-init log: network steps, warnings, errors"
+  grep -E 'WARNING|ERROR|Traceback|[Rr]enam|[Ee]phemeral|dhcp|Applying network|netplan|link set|Bringing|[Ee]vent|update_event|network config' \
+    /var/log/cloud-init.log 2>/dev/null | grep -v 'ci-info' | head -n 80
+  section "IPv6 sysctls for eth0"
+  for k in disable_ipv6 addr_gen_mode accept_ra keep_addr_on_down; do
+    printf '%s=%s\n' "$k" "$(cat "/proc/sys/net/ipv6/conf/eth0/$k" 2>/dev/null)"
+  done
 fi
 
 ((fails == 0))
