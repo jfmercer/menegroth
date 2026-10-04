@@ -80,9 +80,9 @@ reports zero changed tasks, or names the ones that would change.
 ## Image test: what it checks
 
 On a throwaway server built from each new snapshot (`packer/README.md`):
-the boot node joins the tailnet and answers from the throwaway's own
-address; the passphrase goes only to that verified node; the boot node
-leaves at pivot; the system joins as `menegroth-server` and deletes its
+the boot node joins the tailnet from the throwaway's address and dropbear
+answers over the tailnet (the Mac's path); the passphrase goes only to the
+throwaway's own public address; the boot node leaves at pivot; the system joins as `menegroth-server` and deletes its
 first-boot credential; no failed units; root on LUKS2; `tailscale0`
 unmanaged and absent from netplan; the **Mac's** key in dropbear and in the
 initramfs; then a kernel reinstall rebuilds the initramfs, and the server
