@@ -200,7 +200,19 @@ expect "a second sweep succeeds" rc_is 0
 expect "a second sweep deletes nothing" test ! -s "$T/log/deleted"
 rm -rf "$T"
 
+setup; fixtures_shared
+run unprotect
+expect "unprotect succeeds" rc_is 0
+expect "unprotect lifts delete protection from menegroth's protected resources only" \
+  test "$(sort "$T/log/unprotected" | tr '\n' ',')" == "$(expected_set 'volumes 11' 'primary_ips 21' 'primary_ips 22')"
+expect "unprotect deletes nothing" test ! -s "$T/log/deleted"
+expect "someone else's protected volume stays protected" \
+  test "$(jq '.[] | select(.id == 12) | .protection.delete' "$T/hz/volumes.json")" == true
+rm -rf "$T"
+
 setup; fixtures_dedicated
+run check
+expect "check doesn't call a project empty while menegroth's resources remain" test "$(lines 'the project is empty')" -eq 0
 run sweep
 run check
 expect "a dedicated project ends up empty, and check says so" out_has "INFO  Hetzner: the project is empty"

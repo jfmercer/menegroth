@@ -42,7 +42,8 @@ In order:
    won't fail forever. Shell, zizmor, and CodeQL stay on.
 2. **`terraform destroy`:** the server, the `/data` volume, both Primary
    IPs (the addresses return to Hetzner's pool), the firewall, and the admin
-   SSH key. Terraform lifts the delete protection itself.
+   SSH key. Just before it, `scripts/ci/teardown.sh unprotect` lifts the
+   delete protection from the volume and the IPs: Terraform doesn't.
 3. **`scripts/ci/teardown.sh sweep`:** the server's daily backups, if
    Hetzner kept any; every FDE snapshot (`fde=true` and candidates);
    leftovers from the image test and from Packer; and any resource of
