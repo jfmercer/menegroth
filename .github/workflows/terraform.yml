@@ -20,8 +20,12 @@ on:
 
 permissions: {} # granted per-job below
 
+# PR plans and applies must not share a group: GitHub cancels a pending run
+# when a newer one joins its group, so a PR push could cancel a queued master
+# apply. Applies (push, dispatch) are serialized on the job below; PR plans
+# wait for the state lock instead.
 concurrency:
-  group: terraform # one plan/apply at a time — state lock friendliness
+  group: terraform-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -38,6 +42,9 @@ jobs:
   terraform:
     name: Plan / apply
     runs-on: ubuntu-26.04
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('terraform-plan-{0}', github.ref) || 'terraform-apply' }}
+      cancel-in-progress: false
     permissions:
       contents: read # clone the repo
       pull-requests: write # plan-as-PR-comment step
@@ -94,7 +101,7 @@ jobs:
       - name: terraform plan
         id: plan
         if: github.event_name == 'pull_request'
-        run: terraform plan -no-color -input=false -out=tfplan
+        run: terraform plan -no-color -input=false -lock-timeout=10m -out=tfplan
         continue-on-error: true
 
       - name: Comment plan on PR
