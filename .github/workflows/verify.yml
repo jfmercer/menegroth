@@ -37,6 +37,12 @@ concurrency:
   group: verify
   cancel-in-progress: false
 
+# An explicit shell makes GitHub run steps with -o pipefail, so a failing
+# check script isn't masked by the `| tee` that records its results.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   outside:
     name: Cloud + internet view
@@ -150,6 +156,7 @@ jobs:
       contents: read # clone the repo
     defaults:
       run:
+        shell: bash # keep -o pipefail (see the workflow-level default)
         working-directory: ansible
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -210,6 +217,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
     defaults:
       run:
+        shell: bash # keep -o pipefail (see the workflow-level default)
         working-directory: terraform
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -248,7 +256,7 @@ jobs:
           rc=$?
           set -e
           case "$rc" in
-            0) echo "PASS  terraform: no drift, the infrastructure matches the code" ;;
+            0) echo "PASS  terraform: no drift ($(grep -m1 -E '^No changes' "$RUNNER_TEMP/plan.txt" || echo 'empty plan'))" ;;
             2) echo "FAIL  terraform drift: $(grep -E '^Plan:' "$RUNNER_TEMP/plan.txt" || echo 'changes pending'); see the job log"
                cat "$RUNNER_TEMP/plan.txt" ;;
             *) echo "FAIL  terraform: plan failed (exit $rc): $(tail -n 5 "$RUNNER_TEMP/plan.txt" | tr '\n' ' ')" ;;
