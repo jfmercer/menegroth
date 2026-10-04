@@ -30,8 +30,9 @@ At boot, servers built from this image: get DHCP networking in initramfs
 (`menegroth-server-boot`, `tag:boot-unlock`; the CLI mints the key from the
 OAuth client secret over HTTPS, hence the embedded CA roots + `resolv.conf`)
 → dropbear accepts the Mac agent's key (forced command `cryptroot-unlock`, no
-forwarding) → root unlocks → the boot node logs itself out before pivoting to
-the real system. On a server's **first** boot, `tailscale-firstboot` then
+forwarding) → root unlocks → the boot node logs itself out and drops the
+initramfs network config before pivoting to the real system, where cloud-init
+configures `eth0` from Hetzner's metadata (DHCPv4 plus the static IPv6 `/64`). On a server's **first** boot, `tailscale-firstboot` then
 joins it as `menegroth-server` (`tag:server`, Tailscale SSH) and deletes its
 credential.
 
@@ -82,8 +83,10 @@ tests it on a second, throwaway cpx22 (~25 minutes), then deletes both:
    `scripts/ci/image-test-system.sh` on it: it joined the tailnet as
    `menegroth-server` (`tag:server`), no failed units, root on LUKS2
    `root_crypt`, the first-boot credential deleted, `tailscale0` unmanaged by
-   networkd and absent from netplan, and the **Mac's** unlock key in both
-   dropbear's `authorized_keys` and the initramfs.
+   networkd and absent from netplan, `eth0` configured from cloud-init's
+   `10-netplan-eth0.network` with the server's `<IPv6 /64>::1` and working
+   IPv6 egress, and the **Mac's** unlock key in both dropbear's
+   `authorized_keys` and the initramfs.
 5. Kernel-update survival: `scripts/ci/image-test-kernel.sh` reinstalls the
    running kernel (its postinst hooks rebuild the initramfs) and checks the
    rebuilt initramfs; then the throwaway reboots, is unlocked again the same

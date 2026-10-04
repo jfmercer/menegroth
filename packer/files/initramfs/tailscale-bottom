@@ -32,15 +32,17 @@ done
 kill -9 "$(pidof tailscaled)" >/dev/null 2>&1 || true
 ip link del tailscale0 >/dev/null 2>&1 || true
 
-# With ip=dhcp, init runs configure_networking again after mounting root,
-# while tailscale0 is still up, and the initramfs records it as a DHCP
-# interface (/run/net-tailscale0.conf, /run/netplan/tailscale0.yaml). /run
-# carries over to the real root: cloud-init copies that into
-# /etc/netplan/50-cloud-init.yaml, and systemd-networkd then retries DHCP on
-# tailscale0 forever, failing systemd-networkd-wait-online. Drop the records
-# with the interface.
-rm -f /run/net-tailscale0.conf /run/net6-tailscale0.conf \
-  /run/netplan/tailscale0.yaml
+# Drop the initramfs network records too (/run/net-*.conf, /run/netplan/).
+# /run carries over to the real root, and cloud-init prefers these records
+# to Hetzner's metadata. They hold the wrong config: no IPv6 (the initramfs
+# only does DHCPv4, but Hetzner assigns IPv6 statically), and an entry for
+# tailscale0, because with ip=dhcp init runs configure_networking again after
+# mounting root, while tailscale0 is still up. From that entry,
+# systemd-networkd retries DHCP on tailscale0 forever, which fails
+# systemd-networkd-wait-online. Without the records, cloud-init configures
+# the real system from Hetzner's metadata (DHCPv4 plus the static IPv6 /64),
+# as on Hetzner's own images.
+rm -f /run/net-*.conf /run/net6-*.conf /run/netplan/*.yaml
 
 # What dropbear's init-bottom does with its default IFDOWN="*": leave no
 # initramfs network configuration behind for the real system.

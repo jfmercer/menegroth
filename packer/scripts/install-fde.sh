@@ -252,7 +252,7 @@ install -m 0755 "$FILES/initramfs/tailscale-bottom" \
 echo "=== 7/8 Grub + initramfs build"
 chroot "$TARGET" env DEBIAN_FRONTEND=noninteractive bash -s <<'CHROOT'
 set -euo pipefail
-# ip=dhcp lets initramfs-tools' configure_networking bring eth0 up before
+# ip=dhcp lets initramfs-tools' configure_networking bring the NIC up before
 # tailscaled starts.
 sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX="ip=dhcp"/' /etc/default/grub
 sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=2/' /etc/default/grub
@@ -302,14 +302,18 @@ done
 # on servers created from this snapshot.
 printf 'datasource_list: [Hetzner, None]\n' \
   > /etc/cloud/cloud.cfg.d/90-hetzner.cfg
+# Fallback networking in case cloud-init renders nothing. cloud-init's own
+# config must win: it sets up eth0 from Hetzner's metadata, with DHCPv4 and
+# the static IPv6 /64 (Hetzner has no DHCPv6). systemd-networkd applies the
+# first matching .network file by name, and netplan names each one
+# 10-netplan-<id>.network, so this fallback's id must sort after "eth0".
 cat > /etc/netplan/50-dhcp.yaml <<'EOF'
 network:
   version: 2
   ethernets:
-    all:
+    zz-fallback:
       match: { name: "e*" }
       dhcp4: true
-      dhcp6: true
 EOF
 chmod 600 /etc/netplan/50-dhcp.yaml
 

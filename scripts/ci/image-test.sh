@@ -17,8 +17,10 @@
 #   3. the boot node logs out at pivot, and the first-boot unit joins the
 #      real system as menegroth-server (tag:server) and deletes its credential;
 #   4. the booted system is healthy: no failed units, root on LUKS2, network
-#      state as designed, and the MAC's unlock key is in the initramfs (the
-#      test unlocks with its own per-build key, so this is checked directly);
+#      state as designed (eth0 from Hetzner's metadata, with the server's
+#      IPv6 address and working IPv6), and the MAC's unlock key is in the
+#      initramfs (the test unlocks with its own per-build key, so this is
+#      checked directly);
 #   5. kernel-update survival: reinstalling the kernel rebuilds the initramfs
 #      with the unlock path, and the server unlocks and rejoins after a reboot.
 # Not covered: unlocking at the Hetzner web console (stock Ubuntu cryptsetup;
@@ -265,7 +267,7 @@ cmd_run() {
   SERVER_NODE_ID="$(on_server <<<"timeout 300 systemctl is-system-running --wait >/dev/null; tailscale status --json | python3 -c 'import json, sys; print(json.load(sys.stdin)[\"Self\"][\"ID\"])'")"
   save SERVER_NODE_ID "$SERVER_NODE_ID"
   log "first boot: checking the booted system"
-  on_server "$mac_blob" "$SERVER_HOSTNAME" <"$HERE/image-test-system.sh" >&2 || die "first boot: system checks failed"
+  on_server "$mac_blob" "$SERVER_HOSTNAME" "$TEST_IPV6_NET" <"$HERE/image-test-system.sh" >&2 || die "first boot: system checks failed"
 
   # ---- Kernel-update survival ------------------------------------------------
   log "kernel update: reinstalling the kernel to rebuild the initramfs"
@@ -277,7 +279,7 @@ cmd_run() {
   wait_banner "$TEST_IPV4" down 180 || die "kernel update: the server did not go down for the reboot"
   boot_and_unlock "after the kernel update"
   log "after the kernel update: checking the booted system"
-  on_server "$mac_blob" "$SERVER_HOSTNAME" <"$HERE/image-test-system.sh" >&2 || die "after the kernel update: system checks failed"
+  on_server "$mac_blob" "$SERVER_HOSTNAME" "$TEST_IPV6_NET" <"$HERE/image-test-system.sh" >&2 || die "after the kernel update: system checks failed"
 
   log "Image test passed"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

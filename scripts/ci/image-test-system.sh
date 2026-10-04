@@ -4,11 +4,12 @@
 # promises? Runs on a server Ansible has never touched, so it uses only what
 # the image ships (python3, not jq).
 #
-# usage: image-test-system.sh <mac-unlock-key-base64-blob> <expected-tailnet-hostname>
+# usage: image-test-system.sh <mac-unlock-key-base64-blob> <expected-tailnet-hostname> <ipv6-/64>
 set -uo pipefail
 
 mac_blob="$1"
 want_hostname="$2"
+ipv6_net="$3"
 fails=0
 pass() { printf '    PASS %s\n' "$*"; }
 fail() { printf '    FAIL %s\n' "$*"; fails=$((fails + 1)); }
@@ -48,6 +49,27 @@ if [[ "$ts_setup" == unmanaged ]]; then
   pass "networkd leaves tailscale0 unmanaged"
 else
   fail "networkd manages tailscale0 (setup state: ${ts_setup:-absent})"
+fi
+
+# cloud-init renders eth0 from Hetzner's metadata (DHCPv4 + the static IPv6
+# /64), and that file, not the image's catch-all fallback, configures the NIC.
+network_file="$(networkctl status eth0 2>/dev/null | sed -n 's/^ *Network File: //p')"
+if [[ "$network_file" == */10-netplan-eth0.network ]]; then
+  pass "eth0 is configured from cloud-init's 10-netplan-eth0.network"
+else
+  fail "eth0's network file is '${network_file:-none}', want 10-netplan-eth0.network"
+fi
+want_v6="${ipv6_net%/*}"
+want_v6="${want_v6%::}::1"
+if ip -6 addr show dev eth0 scope global | grep -q "inet6 $want_v6/64"; then
+  pass "eth0 has the server's IPv6 address $want_v6"
+else
+  fail "eth0 lacks $want_v6/64: $(ip -6 -br addr show dev eth0 scope global)"
+fi
+if ping -6 -c 1 -W 5 2606:4700:4700::1111 >/dev/null 2>&1; then
+  pass "IPv6 egress works"
+else
+  fail "no IPv6 egress (ping -6 2606:4700:4700::1111)"
 fi
 
 netplan_ci=/etc/netplan/50-cloud-init.yaml
