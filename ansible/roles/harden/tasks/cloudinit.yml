@@ -1,0 +1,27 @@
+---
+# cloud-init's Hetzner datasource turns on network hotplug. Its udev rule
+# runs the hotplug hook for any new interface whose MAC starts with 86:
+# (Hetzner's private-network NICs), and about 1 in 64 of Docker's random
+# veth MACs does too. The hook can't find such a veth in Hetzner's metadata
+# and leaves cloud-init-hotplugd.service failed, which raises a health
+# alert. Hotplug only matters for Hetzner private networks attached to a
+# running server, and this server has none. Keep cloud-init's network
+# updates to boot time.
+- name: Limit cloud-init network updates to boot time (no hotplug)
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/95-no-network-hotplug.cfg
+    content: |
+      updates:
+        network:
+          when: [boot-new-instance, boot]
+    owner: root
+    group: root
+    mode: "0644"
+
+# cloud-init installs this rule once per instance, on first boot, so it
+# stays gone.
+- name: Remove cloud-init's hotplug udev rule
+  ansible.builtin.file:
+    path: /etc/udev/rules.d/90-cloud-init-hook-hotplug.rules
+    state: absent
+  notify: Reload udev rules

@@ -23,3 +23,6 @@
 
 - name: Configure fail2ban and auditd
   ansible.builtin.import_tasks: intrusion.yml
+
+- name: Disable cloud-init network hotplug
+  ansible.builtin.import_tasks: cloudinit.yml
