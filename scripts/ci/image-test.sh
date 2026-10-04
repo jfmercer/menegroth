@@ -271,7 +271,9 @@ cmd_run() {
   log "kernel update: reinstalling the kernel to rebuild the initramfs"
   on_server <"$HERE/image-test-kernel.sh" >&2 || die "kernel update: the initramfs rebuild failed"
   log "kernel update: rebooting"
-  on_server <<<'systemctl --no-block reboot' >&2 || die "kernel update: could not reboot the throwaway"
+  # The shutdown often kills sshd before the client exits, which ssh reports
+  # as a failure; whether the server actually went down is checked next.
+  on_server <<<'systemctl --no-block reboot' >/dev/null 2>&1 || true
   wait_banner "$TEST_IPV4" down 180 || die "kernel update: the server did not go down for the reboot"
   boot_and_unlock "after the kernel update"
   log "after the kernel update: checking the booted system"
