@@ -32,6 +32,16 @@ done
 kill -9 "$(pidof tailscaled)" >/dev/null 2>&1 || true
 ip link del tailscale0 >/dev/null 2>&1 || true
 
+# With ip=dhcp, init runs configure_networking again after mounting root,
+# while tailscale0 is still up, and the initramfs records it as a DHCP
+# interface (/run/net-tailscale0.conf, /run/netplan/tailscale0.yaml). /run
+# carries over to the real root: cloud-init copies that into
+# /etc/netplan/50-cloud-init.yaml, and systemd-networkd then retries DHCP on
+# tailscale0 forever, failing systemd-networkd-wait-online. Drop the records
+# with the interface.
+rm -f /run/net-tailscale0.conf /run/net6-tailscale0.conf \
+  /run/netplan/tailscale0.yaml
+
 # What dropbear's init-bottom does with its default IFDOWN="*": leave no
 # initramfs network configuration behind for the real system.
 for iface in /sys/class/net/*; do
