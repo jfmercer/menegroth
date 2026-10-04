@@ -4,6 +4,7 @@ name: Shell
 # Shellcheck every tracked shell script (bootstrap, Mac agent, Packer image
 # + initramfs hooks) and the RENDERED Ansible script templates. Rendering also
 # catches Jinja syntax errors, which ansible-lint and --syntax-check never see.
+# Also unit-tests the Mac unlock agent's decisions (macos/tests).
 
 on:
   pull_request:
@@ -51,3 +52,17 @@ jobs:
       # shellcheck ships preinstalled on GitHub's Ubuntu runners.
       - name: Render templates + shellcheck
         run: scripts/ci/shellcheck-all.sh
+
+  mac-agent:
+    name: Mac agent tests
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clone the repo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # The agent is portable bash + /usr/bin/python3; stubs stand in for
+      # tailscale, op, ssh, and curl.
+      - name: Unlock agent decisions
+        run: macos/tests/agent-test.sh

@@ -98,6 +98,10 @@ survives Mac reboots, so there is nothing to re-run afterwards.
   fallback: `docs/troubleshooting.md` §8.
 - State/logs: `~/.local/state/menegroth-server-unlock/` (`agent.log`, `unlock.log`).
 
+If the agent can't read 1Password (token revoked or expired), it still
+alerts: it keeps a 0600 copy of the ntfy URL in
+`~/.config/menegroth-server-unlock/ntfy-url`, refreshed on every alert.
+
 ## Rotation & revocation
 
 - **Service account token:** revoke `menegroth-unlock` at 1password.com,

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Infrastructure-as-code for a single personal Hetzner CPX32 server running sandboxed AI agent workflows (NVIDIA NemoClaw). There is no application code and no test suite — the repo is Terraform + Packer + Ansible + shell, and "testing" means linters, `validate`, and the post-deploy checklist in `docs/verification.md`. Nothing deploys from a laptop: **all applies/builds happen in GitHub Actions**.
+Infrastructure-as-code for a single personal Hetzner CPX32 server running sandboxed AI agent workflows (NVIDIA NemoClaw). There is no application code and no test suite — the repo is Terraform + Packer + Ansible + shell, and "testing" means linters, `validate`, the image test on every Packer build, the Mac agent's unit tests, and the daily Verify workflow (`docs/verification.md` maps every check to where it runs). Nothing deploys from a laptop: **all applies/builds happen in GitHub Actions**.
 
 ## Commands
 
@@ -33,6 +33,12 @@ cd ansible && uv run ansible-galaxy collection install -r requirements.yml && \
 # Everything at once (gitleaks, terraform fmt/validate/tflint, ansible-lint, ...)
 uv run pre-commit run -a
 
+# Mac unlock agent: unit tests against stubbed tailscale/op/ssh/curl (bash 3.2 compatible)
+macos/tests/agent-test.sh
+
+# Server checks, read-only, exactly as the Verify workflow runs them (from a tailnet member)
+ssh admin@menegroth-server "sudo env $(uv run python scripts/verify/expected.py) bash -s" < scripts/verify/server.sh
+
 # Bootstrap scripts (one-time; shellcheck with -x to follow sourced lib.sh)
 cd scripts/bootstrap && shellcheck -x ./*.sh && ./bootstrap.sh --dry-run
 ```
@@ -43,12 +49,13 @@ The one-time bootstrap is automated in `scripts/bootstrap/` (see `docs/architect
 
 ## CI model
 
-Seven workflows in `.github/workflows/` (all but renovate.yml path-filtered):
+Eight workflows in `.github/workflows/` (all but renovate.yml path-filtered or scheduled):
 
 - **terraform.yml** — fmt/validate/tflint + plan-as-PR-comment on PRs; auto-apply on master push. Manual dispatch (master only) also applies; its `replace_server` checkbox is the image roll (`-replace=hcloud_server.menegroth`), which also hands the `menegroth-server` tailnet name to the new server and dispatches Ansible (`scripts/ci/image-roll.sh`). State lives in HCP Terraform (state-only backend, execution mode "Local").
 - **ansible.yml** — lint + syntax check on PRs; on master push the runner joins the tailnet as an ephemeral `tag:ci` node and runs `site.yml` over Tailscale SSH (the server has zero public inbound ports).
 - **packer.yml** — fmt/validate on PRs; manual dispatch builds the image **and tests it on a throwaway server** (`scripts/ci/image-test.sh`: verified unlock over the tailnet, system checks, kernel reinstall + reboot), then deletes the throwaway. Snapshots are born `fde=candidate`; only a passing master build is promoted to `fde=true` (Terraform's selector), everything else is deleted (D13). Dispatching on a PR branch tests that branch's image without promoting it.
-- **shellcheck.yml** — shellchecks every tracked shell script plus the *rendered* Ansible templates (`scripts/ci/shellcheck-all.sh`); rendering also catches Jinja syntax errors, which ansible-lint/`--syntax-check` never see. Beware `${#…}` in `.j2` files: `{#` opens a Jinja comment.
+- **shellcheck.yml** — shellchecks every tracked shell script plus the *rendered* Ansible templates (`scripts/ci/shellcheck-all.sh`); rendering also catches Jinja syntax errors, which ansible-lint/`--syntax-check` never see. Beware `${#…}` in `.j2` files: `{#` opens a Jinja comment. Also runs the Mac agent's unit tests (`macos/tests/agent-test.sh`); change the agent's behaviour → change its tests.
+- **verify.yml** — daily (and on PRs touching `scripts/verify/`): cloud + internet view (`scripts/verify/outside.sh`, incl. a full TCP scan from off the tailnet), server checks over Tailscale SSH (`scripts/verify/server.sh`, expected values from the Ansible config via `expected.py`), Ansible drift (`--check`), Terraform drift; Mondays add one agent turn; dispatch inputs for a test ntfy alert and a reboot drill; a failed scheduled run alerts via ntfy (D14). When you add a role/setting, add its check here — and mark read-only probe tasks `check_mode: false` so `--check` can evaluate what depends on them.
 - **renovate.yml** — weekly self-hosted Renovate (see below).
 - **zizmor.yml** / **codeql.yml** — security analysis of the workflows themselves (SARIF → Security tab); zizmor also runs as a pre-commit hook. Baseline: clean at `--persona=pedantic` — keep it that way when touching workflows.
 

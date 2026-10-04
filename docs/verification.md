@@ -1,109 +1,115 @@
-# Deployment verification checklist
+# Verification
 
-Run these end-to-end checks after first deployment (and the relevant subset
-after any significant change). They mirror the build phases.
+Every check that used to be a manual checklist item now runs in CI (D13,
+D14). This page says where each one runs, and lists the few that can't be
+automated.
 
-## Infrastructure & CI
+| Where | When | What it proves |
+|---|---|---|
+| **Verify** workflow (`verify.yml`) | daily 06:17 UTC; Mondays add an agent turn; on demand; on PRs that change the checks | the production server and its cloud setup still match the repo |
+| **Packer FDE image** workflow, image test (`scripts/ci/image-test.sh`) | every image build | a new image boots, unlocks over the tailnet, and survives a kernel update, before anything can roll onto it |
+| **Shell** workflow, Mac agent tests (`macos/tests/agent-test.sh`) | every PR and push touching `macos/` | the unlock agent's decisions: when it unlocks, refuses, and alerts |
+| PR checks (`terraform.yml`, `ansible.yml`, `packer.yml`, `shellcheck.yml`, `zizmor.yml`) | every PR | lint, validate, plan; the pipeline itself |
 
-- [ ] A PR touching `terraform/` gets a plan comment; merge applies cleanly.
-- [ ] Re-running the Terraform workflow shows **no drift** (empty plan).
-- [ ] A PR touching `ansible/` runs ansible-lint + syntax check.
+A failed scheduled Verify run pushes a high-priority ntfy alert (sent
+through the server, the only machine that can read the ntfy URL) and
+GitHub emails you. Each job's summary page lists every check with
+✅ / ❌ / ⚠️.
 
-## Hardening
+## Verify workflow: what it checks
 
-- [ ] `ansible-playbook site.yml` twice in a row → second run reports 0 changes.
-- [ ] `ssh root@server` and password auth are refused.
-- [ ] `getent passwd admin` shows the configured login shell (`/usr/bin/zsh`
-      by default; `admin_shell` in `ansible/group_vars/all.yml`).
-- [ ] `sudo unattended-upgrade --dry-run --debug` shows security origins active.
-- [ ] Optional: `sudo lynis audit system` — record the score as a baseline.
+**Cloud + internet view** (`scripts/verify/outside.sh`, from a runner *off*
+the tailnet):
 
-## Network posture
+- Hetzner: the server is running, daily backups are on, its firewall is
+  applied with **no inbound rules** (IPv4 and IPv6), and both Primary IPs
+  have `auto_delete` off (D11).
+- `nmap` of all 65535 TCP ports on the public IPv4 finds nothing open.
+  GitHub runners have no IPv6, so IPv6 rests on the firewall check.
+- A tested (`fde=true`) snapshot exists; no image-test server, firewall, or
+  SSH key lingers.
+- The tailnet has exactly one `menegroth-server` and no stale `tag:server`
+  nodes.
+- `/ci/TS_SERVER_OAUTH_SECRET` and `TS_DEVICES_OAUTH_SECRET` are OAuth
+  client secrets, which never expire (D10). The boot secret is enforced at
+  build time by Packer's variable validation.
 
-- [ ] From outside the tailnet: `nmap -Pn <public-ip>` shows **no open ports**.
-- [ ] From a tailnet device: `ssh admin@menegroth-server` works (Tailscale SSH).
-- [ ] The Ansible provision job (runner joins tailnet) succeeds on merge.
+**Server checks** (`scripts/verify/server.sh`, as root over Tailscale SSH;
+expected values come from the Ansible config via `scripts/verify/expected.py`):
 
-## FDE root & automated unlock
+- Hardening: sshd refuses root and passwords; `admin`'s shell is
+  `admin_shell`; unattended-upgrades installs security updates and reboots
+  at `unattended_reboot_time`; fail2ban and auditd run; ufw denies inbound
+  by default and has only the documented rules.
+- Tailnet: Running as `menegroth-server` with `tag:server` and Tailscale
+  SSH; the first-boot credential is gone.
+- System: no failed units; root on LUKS2 with one keyslot.
+- Secrets: `infisical-get --check` works, and the server identity
+  **cannot** read `/unlock` or `/ci` (split custody, D8; output discarded).
+- Data volume: `/data` is mounted from LUKS2 with one keyslot, and came up
+  unattended at boot. After a boot where Ansible or a person mounted it,
+  that check is a warning until the next reboot.
+- Agent runtime: 4 GB swap; the `nemoclaw.slice` and user-slice memory
+  caps; every container inside `nemoclaw.slice`; no port published on all
+  interfaces; the installer pinned to `nemoclaw_install_commit` with its
+  marker for `nemoclaw_install_tag`; agent state on `/data`; `nemoclaw
+  doctor` healthy; sandbox egress: `inference.local` allowed, `example.com`
+  blocked.
+- Agent turn (Mondays, or on demand): one real turn answers `PONG`, in a
+  scratch session that is deleted afterwards (a few cents of inference).
+- Operations: the health check ran in the last 20 minutes and succeeded;
+  no failed dead-man pings in 2 hours; restic's last backup is under 26 h
+  old, or a warning while restic is off; dotfiles at `DOTFILES_REF` when
+  configured.
 
-- Automated on every image build (Packer workflow, `scripts/ci/image-test.sh`):
-  a throwaway server's boot node joins, answers from its own address, and
-  unlocks over dropbear; it rejoins as `menegroth-server` with its
-  first-boot credential gone; kernel-update survival (reinstall, reboot,
-  unlock again). Not automated: passphrase entry at the Hetzner console.
-- [ ] Hands-off `sudo reboot` → Mac agent unlocks within ~2–3 min, ntfy
-      "unlocked" notification arrives, all services recover — **with the
-      1Password app locked and quit** (proves the service-account path).
-- [ ] Revoke-token drill: revoke the 1Password service account, reboot →
-      agent sends the unlock-FAILED alert; recover via the console
-      (`docs/troubleshooting.md` §8), then rotate the token per
-      `macos/README.md`.
-- [ ] Origin check: while the server waits at the prompt,
-      `menegroth-server-unlock --diagnose` shows `via <SERVER_IPV4>:… ->
-      verified`.
-- [ ] Impersonation drill: set a wrong `SERVER_IPV4` in
-      `~/.config/menegroth-server-unlock/config`, reboot → the agent sends
-      NOTHING and raises the "possible impersonation" alert; unlock via the
-      console (`docs/troubleshooting.md` §8); restore the correct value.
-- [ ] Mac asleep during reboot → server waits; on wake the agent unlocks;
-      after 10+ min stuck, the urgent "STUCK at boot" ntfy fires.
-- [ ] The boot node disappears from the tailnet after pivot (ephemeral +
-      logout), and `tailscale status` on the running server shows only the
-      real node.
-- [ ] Fresh server (first deploy or image roll): it joins the tailnet as
-      `menegroth-server` with no manual step, and
-      `/etc/tailscale-firstboot/authkey` no longer exists.
-- [ ] Credentials don't expire: preflight reports both
-      `TS_*_OAUTH_SECRET`s as OAuth client secrets (`tskey-client-…`).
-- [ ] Server identity CANNOT read `/unlock`: `sudo infisical-get ROOT_LUKS_KEY`
-      on the server must FAIL.
+**Ansible drift** (`scripts/verify/ansible-drift.sh`): `site.yml --check`
+reports zero changed tasks, or names the ones that would change.
 
-## Secrets & encrypted volume
+**Terraform drift:** `terraform plan -detailed-exitcode` is empty.
 
-- [ ] On the server: `sudo infisical-get --check` exits 0.
-- [ ] `git grep -iE 'client_secret|BEGIN.*KEY'` in this repo finds nothing real;
-      CI logs show no secret values (spot-check a run).
-- [ ] `sudo systemctl reboot` → within ~2 minutes `/data` is mounted again
-      with no human involved (`mountpoint /data`).
-- [ ] `sudo cryptsetup luksDump $(ls /dev/disk/by-id/scsi-0HC_Volume_*)`
-      shows LUKS2 with one keyslot.
+**On demand** (Actions → Verify → Run workflow):
 
-## Agent runtime
+- `send_test_alert`: one low-priority ntfy message, to prove alerts reach
+  your phone.
+- `reboot_drill`: reboots production first and proves it comes back with
+  no human involved: the Mac agent unlocks it, `/data` remounts, and every
+  server check passes afterwards. Needs the Mac awake; a few minutes of
+  downtime. Unattended-upgrade reboots do the same in real life.
+- `agent_turn`: the agent turn, any day.
 
-- [ ] As the nemoclaw user: onboard and run one sample agent end-to-end.
-      Needs an inference provider key: until `nemoclaw_provider_key_secret`
-      is set, the play skips the installer and says so (D5).
-- [ ] Blocked egress actually blocks: from inside the sandbox, `curl` a
-      non-allowlisted host and confirm it fails.
-- [ ] Containers are capped: `systemd-cgls -u nemoclaw.slice` lists the
-      Docker containers (k3s, gateway, sandboxes), and
-      `systemctl show nemoclaw.slice -p MemoryMax` shows the 6 GB cap;
-      `systemctl show user-1500.slice -p MemoryMax` shows the CLI cap.
-- [ ] `swapon --show` lists `/swapfile` (4 GB, on the encrypted root).
-- [ ] `sudo ss -tlnp` shows no Docker-published port bound to `0.0.0.0`/`::`
-      (daemon.json `ip: 127.0.0.1`).
-- [ ] The installer ran from the pinned commit: the role's
-      `NEMOCLAW_INSTALL_REF` equals `nemoclaw_install_commit`, and the
-      marker `/var/lib/nemoclaw-provisioned/<tag>` exists on the root disk.
-- [ ] Agent state lands under `/data/nemoclaw` (`du -sh /data/nemoclaw`).
+## Image test: what it checks
 
-## Operator dotfiles (only if `DOTFILES_REPO` is set)
+On a throwaway server built from each new snapshot (`packer/README.md`):
+the boot node joins the tailnet from the throwaway's address and dropbear
+answers over the tailnet (the Mac's path); the passphrase goes only to the
+throwaway's own public address; the boot node leaves at pivot; the system joins as `menegroth-server` and deletes its
+first-boot credential; no failed units; root on LUKS2; `tailscale0`
+unmanaged and absent from netplan; the **Mac's** key in dropbear and in the
+initramfs; then a kernel reinstall rebuilds the initramfs, and the server
+reboots, unlocks, and passes again. Only a passing master build becomes
+`fde=true`.
 
-- [ ] As `admin`: `git -C ~/<DOTFILES_DEST> rev-parse HEAD` equals
-      `DOTFILES_REF`, and `~/.local/state/menegroth-dotfiles/installed-<sha>`
-      exists.
-- [ ] A second Ansible run reports the dotfiles role unchanged.
-- [ ] Nothing was installed for `nemoclaw` (`sudo ls -a /data/nemoclaw`).
+## Mac agent tests: what they check
 
-## Operations
+Stubbed `tailscale`, `op`, `ssh`, and `curl`, the real agent: no boot node
+means no 1Password call; a verified IPv4 or IPv6 origin gets exactly the
+passphrase (no newline), and the key's temp dir is removed; a mismatched
+origin is never sent anything and raises the impersonation alert once,
+after the 5-minute grace; relay-only is a safe refusal with an alert after
+the grace; with an impostor and the real server online, only the real one
+is unlocked; no `SERVER_IPV4` fails closed; a revoked token or a missing
+token file still alerts (cached ntfy URL); 10 minutes at the prompt raises
+STUCK; the cooldown holds; a failed SSH alerts; `--diagnose` reads nothing
+and changes nothing.
 
-- [ ] Force an alert: `sudo systemctl start server-healthcheck.service` with
-      tailscaled stopped → ntfy notification arrives; restart tailscaled.
-- [ ] Dead-man heartbeat: the monitor shows a ping every ~15 min; `sudo
-      systemctl stop server-healthcheck.timer` for longer than the grace
-      period → the monitor alerts; re-start the timer.
-- [ ] Hetzner console shows daily server backups enabled.
-- [ ] If restic is enabled: `restic snapshots` lists last night's backup, and
-      a test `restic restore latest --target /tmp/restore-drill` succeeds.
-- [ ] Walk `docs/runbooks/break-glass.md` once for real: open the Hetzner
-      console and confirm you can reach a shell via rescue mode.
+## Not automated, and why
+
+- **Typing the passphrase at the Hetzner web console** (the break-glass
+  unlock, `docs/troubleshooting.md` §8). Hetzner has no API to type into
+  the console. The prompt is stock Ubuntu cryptsetup, and the image test
+  proves the initramfs and LUKS setup it relies on. Worth doing once, so
+  you know your Hetzner login and 2FA work when you need them.
+- **Rescue mode** (`docs/runbooks/break-glass.md`): same reason; it is your
+  Hetzner account access being tested.
+- **Whether your dead-man monitor pages you** when pings stop: that is the
+  monitor's own configuration. Verify proves the pings succeed.

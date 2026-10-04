@@ -33,6 +33,7 @@
   ansible.builtin.command: swapon --show=NAME --noheadings
   register: nemoclaw_swap_active
   changed_when: false
+  check_mode: false # read-only probe; the Verify workflow's drift check runs --check
 
 - name: Activate swap
   ansible.builtin.command: swapon {{ nemoclaw_swap_file }}

@@ -292,8 +292,8 @@ of the admin account. *Alternative considered:* rootless Docker — not a
 NemoClaw-tested path (k3s-in-Docker under rootless is fragile), so rejected
 for now. NemoClaw validates Ubuntu 24.04 as a host; its 26.04 lane covers
 installer and preflight but not yet live onboarding, so this host is ahead
-of upstream validation (`docs/verification.md` checks the stack end to
-end).
+of upstream validation (the Verify workflow checks the stack end to end
+every day, D14).
 
 **Inference credential (2026-10-03):** the installer always ends by
 onboarding, and non-interactive onboarding needs an API key for every hosted
@@ -586,6 +586,50 @@ it stays in the tailnet. *Cost:* a dispatch takes ~45 minutes and two
 short-lived cpx22s (pennies); the operator creates one more OAuth client
 once.
 
+### D14 — Verification is automated, daily
+
+*(2026-10-04.)* The post-deploy checklist (`docs/verification.md`) had
+about forty manual steps: SSH in, run a command, compare, repeat. Nobody
+reruns that after every change, so it was effectively done once, and drift
+would have gone unnoticed.
+
+**Decision:** every check that a machine can perform runs in CI. The
+**Verify** workflow runs daily and on PRs that change it. It runs four jobs:
+the cloud and internet view (Hetzner API, a full TCP scan of the public
+IPv4 from off the tailnet, image and tailnet hygiene); checks on the server
+itself as root over Tailscale SSH, with expected values read from the
+Ansible config, so the checks and the config can't disagree; Ansible drift
+(`site.yml --check`, no changed tasks); and Terraform drift (an empty
+plan). Mondays add one real agent turn in a scratch session. On-demand
+inputs send a test notification or run a reboot drill. A failed scheduled
+run alerts through ntfy, relayed by the server because only it can read
+the topic URL. Image-level checks moved into the image test (D13), and the
+Mac agent's decisions are unit-tested against stubs (`macos/tests`), which
+replaces the impersonation, refusal, revoked-token, and stuck drills.
+
+Writing those tests found a real bug: with a revoked 1Password token the
+agent couldn't send the very alert reporting it, because the ntfy URL came
+from 1Password too. The agent now keeps a 0600 copy of the URL as a
+fallback.
+
+**Trust:** the checks are read-only. The two exceptions are opt-in inputs:
+the agent turn (deletes its session) and the reboot drill. The custody
+check logs in as the server identity on the server and tries to read
+`/unlock` and `/ci`, discarding the output, so even a broken boundary leaks
+nothing into CI logs. Read-only Ansible probes are marked
+`check_mode: false` so check mode can evaluate the tasks that depend on
+them.
+
+*Alternatives considered:* keep the manual checklist — rejected, see
+above; a monitoring stack (Prometheus and friends) — rejected for one
+server: the existing health check covers liveness, and drift and posture
+are what was missing; reboot production on a schedule to prove unattended
+recovery — rejected: unattended-upgrade reboots already do it, and the
+drill is one click away; a hosted scanner for the external port scan —
+rejected: a GitHub runner off the tailnet is already outside. *Not
+automatable:* typing into the Hetzner console, rescue mode, and the dead-man
+monitor's own paging.
+
 ## Provisioning flow
 
 1. `terraform apply` (CI) creates SSH key, firewall, server (cloud-init:
@@ -611,7 +655,9 @@ once.
   (`unattended_reboot_time` in `ansible/group_vars/all.yml`, chosen for
   Mac-awake hours so the root can be unlocked — see D2b); the data volume
   re-unlocks itself after reboot (see D2).
-- **Verification:** `docs/verification.md` is the post-deploy checklist.
+- **Verification:** automated (D14): the daily Verify workflow, the image
+  test on every build (D13), and the Mac agent's unit tests.
+  `docs/verification.md` maps every check to where it runs.
 
 ## Out of scope (for now)
 
