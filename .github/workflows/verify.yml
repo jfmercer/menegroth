@@ -1,0 +1,305 @@
+---
+name: Verify
+
+# The post-deploy checklist, automated (docs/verification.md, D14). Four
+# read-only jobs: the cloud and internet view of the server, checks on the
+# server itself, Ansible drift (check mode), and Terraform drift. A failed
+# scheduled run also pushes an ntfy alert. Image-level checks (boot, unlock,
+# kernel updates) run on every image build instead (packer.yml, D13), and
+# the Mac agent's decisions are unit-tested (shellcheck.yml).
+on:
+  schedule:
+    - cron: "17 6 * * 0,2-6" # daily: every read-only check
+    - cron: "17 6 * * 1" # Mondays: the same, plus one agent turn (a few cents of inference)
+  workflow_dispatch:
+    inputs:
+      agent_turn:
+        description: Run one agent turn end to end (a few cents of inference; scratch session, deleted after)
+        type: boolean
+        default: false
+      send_test_alert:
+        description: Push one low-priority test notification to ntfy
+        type: boolean
+        default: false
+      reboot_drill:
+        description: >-
+          Reboot the server first and prove it comes back unattended (Mac agent
+          unlock, /data remount). Needs the Mac awake; a few minutes of downtime.
+        type: boolean
+        default: false
+  # A PR that changes the checks proves them against production first.
+  pull_request:
+    paths: ["scripts/verify/**", ".github/workflows/verify.yml"]
+
+permissions: {} # granted per-job below
+
+concurrency:
+  group: verify
+  cancel-in-progress: false
+
+jobs:
+  outside:
+    name: Cloud + internet view
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clone the repo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - name: Install nmap
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nmap >/dev/null
+
+      # Before joining the tailnet: this runner is just another host on the
+      # internet, which is the point of the port scan.
+      - name: Check
+        run: scripts/verify/outside.sh | tee "$RUNNER_TEMP/results.txt"
+
+      - name: Summary
+        if: always()
+        run: scripts/verify/summary.sh "Cloud + internet view" "$RUNNER_TEMP/results.txt" >> "$GITHUB_STEP_SUMMARY"
+
+  server:
+    name: Server checks
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clone the repo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      # The key-custody check needs the CI/unlock project's ID (not a secret);
+      # without it that one check is skipped with a warning.
+      - name: Resolve the CI/unlock project's ID
+        env:
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+        run: echo "CI_PROJECT_ID=$(scripts/verify/infisical-project-id.sh menegroth || true)" >> "$GITHUB_ENV"
+
+      - name: Join tailnet
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: menegroth-verify
+          # Pinned (not `latest`); Renovate bumps it with the Packer
+          # initramfs pin in the grouped tailscale PR.
+          # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
+          version: "1.98.9"
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
+
+      - name: Reboot drill
+        if: inputs.reboot_drill
+        run: scripts/verify/reboot-drill.sh
+
+      - name: Check
+        env:
+          AGENT_TURN: ${{ github.event.schedule == '17 6 * * 1' || inputs.agent_turn == true }}
+          SEND_TEST_ALERT: ${{ inputs.send_test_alert == true }}
+          # Optional operator dotfiles (D12): repository variables.
+          DOTFILES_REF: ${{ vars.DOTFILES_REF }}
+          DOTFILES_DEST: ${{ vars.DOTFILES_DEST }}
+        run: |
+          words="$(uv run --frozen python scripts/verify/expected.py)"
+          for var in CI_PROJECT_ID AGENT_TURN SEND_TEST_ALERT DOTFILES_REF DOTFILES_DEST; do
+            words+=" $var=$(printf '%q' "${!var:-}")"
+          done
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+            admin@menegroth-server "sudo env $words bash -s" < scripts/verify/server.sh | tee "$RUNNER_TEMP/results.txt"
+
+      - name: Summary
+        if: always()
+        run: scripts/verify/summary.sh "Server checks" "$RUNNER_TEMP/results.txt" >> "$GITHUB_STEP_SUMMARY"
+
+  ansible-drift:
+    name: Ansible drift (check mode)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clone the repo
+    defaults:
+      run:
+        working-directory: ansible
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - name: Join tailnet
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: menegroth-verify
+          # Pinned (not `latest`); Renovate bumps it with the Packer
+          # initramfs pin in the grouped tailscale PR.
+          # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
+          version: "1.98.9"
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+      - name: Install Python toolchain
+        run: uv sync --frozen
+      - name: Install collections
+        run: uv run ansible-galaxy collection install -r requirements.yml
+
+      - name: Check
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False" # host keys are vouched by Tailscale SSH
+          DOTFILES_REPO: ${{ vars.DOTFILES_REPO }}
+          DOTFILES_REF: ${{ vars.DOTFILES_REF }}
+          DOTFILES_DEST: ${{ vars.DOTFILES_DEST }}
+        run: ../scripts/verify/ansible-drift.sh | tee "$RUNNER_TEMP/results.txt"
+
+      - name: Summary
+        if: always()
+        run: ../scripts/verify/summary.sh "Ansible drift" "$RUNNER_TEMP/results.txt" >> "$GITHUB_STEP_SUMMARY"
+
+  terraform-drift:
+    name: Terraform drift
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clone the repo
+    env:
+      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_IN_AUTOMATION: "true"
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - name: Map admin SSH key to a Terraform variable
+        run: echo "TF_VAR_admin_ssh_public_key=$ADMIN_SSH_PUBLIC_KEY" >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          terraform_wrapper: false # keep plan's real exit code
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      # -detailed-exitcode: 0 = no changes, 2 = drift, 1 = error. A plan
+      # waits for the state lock if an apply is running.
+      - name: Check
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -input=false -no-color -lock-timeout=10m > "$RUNNER_TEMP/plan.txt" 2>&1
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "PASS  terraform: no drift, the infrastructure matches the code" ;;
+            2) echo "FAIL  terraform drift: $(grep -E '^Plan:' "$RUNNER_TEMP/plan.txt" || echo 'changes pending'); see the job log"
+               cat "$RUNNER_TEMP/plan.txt" ;;
+            *) echo "FAIL  terraform: plan failed (exit $rc): $(tail -n 5 "$RUNNER_TEMP/plan.txt" | tr '\n' ' ')" ;;
+          esac | tee "$RUNNER_TEMP/results.txt"
+          [[ "$rc" == 0 ]]
+
+      - name: Summary
+        if: always()
+        run: grep -E '^(PASS|FAIL) ' "$RUNNER_TEMP/results.txt" > "$RUNNER_TEMP/lines.txt" || true; ../scripts/verify/summary.sh "Terraform drift" "$RUNNER_TEMP/lines.txt" >> "$GITHUB_STEP_SUMMARY"
+
+  # A scheduled run that finds a problem tells your phone, through the same
+  # ntfy topic as the server's own alerts (only the server can read its URL).
+  notify:
+    name: Alert on failure
+    needs: [outside, server, ansible-drift, terraform-drift]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
+        with:
+          method: universal
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: https://eu.infisical.com
+          project-slug: menegroth
+          env-slug: prod
+          secret-path: /ci
+          export-type: env
+
+      - name: Join tailnet
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: menegroth-verify
+          # Pinned (not `latest`); Renovate bumps it with the Packer
+          # initramfs pin in the grouped tailscale PR.
+          # renovate: datasource=github-releases depName=tailscale/tailscale extractVersion=^v(?<version>.+)$
+          version: "1.98.9"
+
+      - name: Push the alert from the server
+        working-directory: ${{ runner.temp }}
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          msg="The daily Verify run found problems: $RUN_URL"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+            admin@menegroth-server "sudo bash -s -- $(printf '%q' "$msg")" <<'EOF'
+          url="$(/usr/local/bin/infisical-get NTFY_TOPIC_URL)"
+          curl -fsS -m 15 -H "Title: Menegroth verify FAILED" -H "Priority: high" -H "Tags: warning" -d "$1" "$url" >/dev/null
+          EOF

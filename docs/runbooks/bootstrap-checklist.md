@@ -112,8 +112,9 @@ on `jfmercer/menegroth`; generate a private key (PEM). App ID + key → the
     outputs, `export MENEGROTH_SERVER_IPV4=… MENEGROTH_SERVER_IPV6_NET=…`, and
     re-run `macos/install.sh`. The agent then unlocks the waiting server,
     which joins the tailnet on first boot; re-run the Ansible workflow if
-    its first attempt ran before the server was reachable. Verify per
-    `docs/verification.md`.
+    its first attempt ran before the server was reachable. Then run the
+    **Verify** workflow (Actions → Verify → Run workflow); it checks the
+    whole deployment (`docs/verification.md`).
 
 ## 7. Revoke [you]
 

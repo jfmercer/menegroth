@@ -51,6 +51,10 @@ OP_VAULT="Menegroth"
 OP_LUKS_REF="op://${OP_VAULT}/luks-passphrase/password"
 OP_SSH_KEY_REF="op://${OP_VAULT}/unlock-ssh-key/private key?ssh-format=openssh"
 OP_NTFY_REF="op://${OP_VAULT}/ntfy/url"
+# Last known ntfy URL (0600, written by install.sh and refreshed on every
+# alert): alerts must still go out when 1Password can't be read, e.g. a
+# revoked token, which would otherwise silence the alert that reports it.
+NTFY_URL_FILE="${HOME}/.config/menegroth-server-unlock/ntfy-url"
 COOLDOWN_SECONDS=120      # don't re-attempt within this window
 STUCK_ALERT_SECONDS=600   # alert if the prompt sits unlocked this long
 VERIFY_GRACE_SECONDS=300  # alert on a refusal or mismatch once it lasts this long
@@ -79,12 +83,22 @@ find_bin() { # $1=name, remaining args = fallback paths (launchd has a bare PATH
 TS="$(find_bin tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
 
 op_read() { # $1=secret reference — token comes from the 0600 token file
+  # Never run op without the token: it would fall back to the desktop app's
+  # integration and could wait on a Touch ID prompt nobody sees.
+  [[ -r "$OP_TOKEN_FILE" && -n "${OP:-}" ]] || return 1
   OP_SERVICE_ACCOUNT_TOKEN="$(cat "$OP_TOKEN_FILE")" "$OP" read "$1"
 }
 
 notify() { # $1=priority $2=title $3=body — best-effort, never fatal
   local url
-  url="$(op_read "$OP_NTFY_REF" 2>/dev/null)" || return 0
+  if url="$(op_read "$OP_NTFY_REF" 2>/dev/null)" && [[ -n "$url" ]]; then
+    if [[ "$(cat "$NTFY_URL_FILE" 2>/dev/null)" != "$url" ]]; then
+      (umask 077 && printf '%s\n' "$url" >"$NTFY_URL_FILE") || true
+    fi
+  else
+    url="$(cat "$NTFY_URL_FILE" 2>/dev/null)" || return 0
+    [[ -n "$url" ]] || return 0
+  fi
   curl -fsS -m 10 -H "Priority: $1" -H "Title: $2" -d "$3" "$url" >/dev/null 2>&1 || true
 }
 
@@ -141,7 +155,7 @@ check_origin() {
 clear_incident() {
   rm -f "$STATE_DIR/first_seen" "$STATE_DIR/stuck_alerted" \
     "$STATE_DIR/refusal_alerted" "$STATE_DIR/mismatch_alerted" \
-    "$STATE_DIR/unconfigured_alerted"
+    "$STATE_DIR/unconfigured_alerted" "$STATE_DIR/notoken_alerted"
 }
 
 # ---- Find online boot nodes --------------------------------------------------
@@ -185,10 +199,12 @@ fi
 # A boot node exists — from here on we need 1Password.
 OP="$(find_bin op /opt/homebrew/bin/op /usr/local/bin/op)"
 
-# Without the token we can neither unlock nor send an ntfy alert (the ntfy
-# URL is itself in the vault) — log loudly so agent.log explains the silence.
+# Without the token we can't unlock; the cached ntfy URL still carries the
+# alert, and agent.log explains it.
 if [[ ! -r "$OP_TOKEN_FILE" ]]; then
   echo "menegroth-server-unlock: server is waiting at the boot prompt but the token file ($OP_TOKEN_FILE) is missing/unreadable — re-run macos/install.sh" >&2
+  alert_once notoken_alerted high "Menegroth server unlock BLOCKED" \
+    "The server is waiting at its unlock prompt, but the Mac agent's 1Password token file is missing, so it cannot unlock. Re-run macos/install.sh; meanwhile unlock from the Hetzner console (docs/troubleshooting.md)."
   exit 1
 fi
 

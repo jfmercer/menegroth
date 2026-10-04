@@ -12,6 +12,7 @@
     executable: /bin/bash
   register: luks_volume_device_scan
   changed_when: false
+  check_mode: false # read-only probe; the Verify workflow's drift check runs --check
 
 - name: Assert exactly one data volume is attached
   ansible.builtin.assert:
@@ -29,6 +30,7 @@
   ansible.builtin.command: cryptsetup isLuks {{ luks_volume_device }}
   register: luks_volume_is_luks
   changed_when: false
+  check_mode: false # read-only probe
   failed_when: luks_volume_is_luks.rc not in [0, 1]
 
 - name: First-time format
@@ -38,6 +40,7 @@
       ansible.builtin.command: blkid -p {{ luks_volume_device }}
       register: luks_volume_blkid
       changed_when: false
+      check_mode: false # read-only probe
       # blkid -p exits 2 when no filesystem/signature is detected — the only
       # state we will format. Anything else means a human must look first.
       failed_when: luks_volume_blkid.rc != 2

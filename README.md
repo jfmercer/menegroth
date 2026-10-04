@@ -80,10 +80,11 @@ Full design rationale and the decision log live in
 terraform/            Hetzner infrastructure (server, firewall, volume, SSH key)
 packer/               FDE image pipeline (LUKS2 root + tailnet-unlock initramfs)
 ansible/              Provisioning: inventory, site.yml, roles/
-macos/                Mac unlock agent (launchd + 1Password + ntfy)
+macos/                Mac unlock agent (launchd + 1Password + ntfy) + its unit tests
 scripts/bootstrap/    One-time bootstrap automation + preflight validator
-.github/workflows/    terraform, ansible, packer, shellcheck, zizmor, codeql, renovate
-scripts/ci/           CI helpers (template rendering + shellcheck)
+.github/workflows/    terraform, ansible, packer, verify, shellcheck, zizmor, codeql, renovate
+scripts/ci/           CI helpers (template rendering, shellcheck, image test, image roll)
+scripts/verify/       The daily Verify workflow's checks
 docs/                 architecture.md, troubleshooting.md, verification.md, runbooks/
 ```
 
@@ -328,3 +329,4 @@ leaves the system deployable:
 11. Ops alignment: evening reboot window, stuck-at-boot alerting
 12. Mac-side secrets moved from Apple Keychain to 1Password
 13. Automated image test on a throwaway server; one-click image roll
+14. Automated verification: daily Verify workflow, Mac agent unit tests

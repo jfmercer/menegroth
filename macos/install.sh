@@ -3,9 +3,12 @@
 # editing menegroth-server-unlock.sh to update the installed copy.
 #
 # All secrets live in 1Password (dedicated vault, service-account read-only
-# access). The only credential this installer writes to disk is the
-# service-account token (0600, FileVault at rest) — on disk so the agent
-# keeps working across Mac reboots without re-running this installer.
+# access). This installer writes two values to disk, both 0600 (FileVault at
+# rest): the service-account token, so the agent keeps working across Mac
+# reboots without re-running this installer, and a copy of the ntfy topic
+# URL, so alerts still go out when 1Password can't be read (a revoked token
+# is exactly when you need the alert). The ntfy URL can post to and read
+# your notification topic, nothing more.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -133,6 +136,9 @@ for ref in \
   fi
 done
 [[ -z "${SELF_CHECK_FAILED:-}" ]] || exit 1
+
+echo "==> Caching the ntfy URL (0600) for alerts when 1Password is unreachable"
+(umask 077 && op_sa read "op://${OP_VAULT}/ntfy/url" > "${HOME}/.config/menegroth-server-unlock/ntfy-url")
 
 echo "==> Installing launchd agent"
 sed "s|__HOME__|${HOME}|g" com.menegroth-server.unlock.plist > "$PLIST_DEST"
